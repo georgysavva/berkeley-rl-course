@@ -9,13 +9,11 @@ Functions to edit:
 import abc
 import itertools
 from typing import Any
-from torch import nn
-from torch.nn import functional as F
-from torch import optim
 
 import numpy as np
 import torch
-from torch import distributions
+from torch import distributions, nn, optim
+from torch.nn import functional as F
 
 from cs285.infrastructure import pytorch_util as ptu
 from cs285.policies.base_policy import BasePolicy
@@ -129,7 +127,9 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         # through it. For example, you can return a torch.FloatTensor. You can also
         # return more flexible objects, such as a
         # `torch.distributions.Distribution` object. It's up to you!
-        raise NotImplementedError
+        mean = self.mean_net(observation)
+        dist = torch.distributions.Normal(mean, torch.exp(self.logstd))
+        return dist
 
     def update(self, observations, actions):
         """
@@ -141,8 +141,20 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             dict: 'Training Loss': supervised learning loss
         """
         # TODO: update the policy and return the loss
-        loss = TODO
+        pred = self(observations)
+        loss = pred.log_prob(actions).sum()
         return {
             # You can add extra logging information here, but keep this line
             'Training Loss': ptu.to_numpy(loss),
         }
+
+    def get_action(self, obs):
+        print("obs shape in get_action", obs.shape)
+        if len(obs.shape) > 1:
+            observation = obs
+        else:
+            observation = obs[None, :]
+        observation = ptu.from_numpy(observation.astype(np.float32))
+        action_dist = self(observation)
+        action = action_dist.sample()
+        return ptu.to_numpy(action)
