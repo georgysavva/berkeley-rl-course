@@ -72,8 +72,8 @@ def run_training_loop(params):
     # Observation and action sizes
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.shape[0]
-    print("observation space dimension:", ob_dim)
-    print("action space dimension:", ac_dim)
+    print("observation space dimension:", env.observation_space.shape)
+    print("action space dimension:", env.action_space.shape)
     # simulation timestep, will be used for video saving
     if 'model' in dir(env):
         fps = 1/env.model.opt.timestep
@@ -163,10 +163,16 @@ def run_training_loop(params):
             # HINT2: use np.random.permutation to sample random indices
             # HINT3: return corresponding data points from each array (i.e., not different indices from each array)
             # for imitation learning, we only need observations and actions.
-            ob_batch, ac_batch = TODO
+            batch_indices = np.random.permutation(params["train_batch_size"])
+            assert replay_buffer.obs is not None, "No data in replay buffer"
+            assert replay_buffer.acs is not None, "No data in replay buffer"
+            ob_batch, ac_batch = (
+                replay_buffer.obs[batch_indices],
+                replay_buffer.acs[batch_indices],
+            )
 
             # use the sampled data to train an agent
-            train_log = actor.update(ob_batch, ac_batch)
+            train_log = actor.update(ptu.from_numpy(ob_batch), ptu.from_numpy(ac_batch))
             training_logs.append(train_log)
 
         # log/save
@@ -238,7 +244,7 @@ def main():
     parser.add_argument("--video_log_freq", type=int, default=-5)
     parser.add_argument('--scalar_log_freq', type=int, default=1)
     parser.add_argument('--no_gpu', '-ngpu', action='store_true')
-    parser.add_argument("--which_gpu", type=int, default=4)
+    parser.add_argument("--which_gpu", type=int, default=3)
     parser.add_argument('--max_replay_buffer_size', type=int, default=1000000)
     parser.add_argument('--save_params', action='store_true')
     parser.add_argument('--seed', type=int, default=1)
