@@ -72,8 +72,7 @@ def run_training_loop(params):
     # Observation and action sizes
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.shape[0]
-    print("observation space dimension:", env.observation_space.shape)
-    print("action space dimension:", env.action_space.shape)
+
     # simulation timestep, will be used for video saving
     if 'model' in dir(env):
         fps = 1/env.model.opt.timestep
@@ -156,14 +155,15 @@ def run_training_loop(params):
         # train agent (using sampled data from replay buffer)
         print('\nTraining agent using sampled data from replay buffer...')
         training_logs = []
-        for _ in range(params['num_agent_train_steps_per_iter']):
-
+        for _ in range(params["num_agent_train_steps_per_iter"]):
             # TODO: sample some data from replay_buffer
             # HINT1: how much data = params['train_batch_size']
             # HINT2: use np.random.permutation to sample random indices
             # HINT3: return corresponding data points from each array (i.e., not different indices from each array)
             # for imitation learning, we only need observations and actions.
-            batch_indices = np.random.permutation(params["train_batch_size"])
+            batch_indices = np.random.permutation(len(replay_buffer))[
+                : params["train_batch_size"]
+            ]
             assert replay_buffer.obs is not None, "No data in replay buffer"
             assert replay_buffer.acs is not None, "No data in replay buffer"
             ob_batch, ac_batch = (

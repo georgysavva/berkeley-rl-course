@@ -1,8 +1,8 @@
 mujoco==2.2.0
 gym==0.25.2
-numpy==2.0.0
-tensorboard==2.10.0
-tensorboardX==2.5.1
+numpy==1.26.4
+tensorboard==2.17.0
+tensorboardX==2.6.2.2
 matplotlib==3.5.3
 ipython==7.34.0
 moviepy==1.0.3
@@ -12,3 +12,4 @@ opencv-python==4.10.0.84
 ipdb==0.13.9
 swig==4.0.2
 box2d-py==2.3.8
+protobuf==4.25.3

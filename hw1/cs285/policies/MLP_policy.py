@@ -149,7 +149,6 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         }
 
     def get_action(self, obs):
-        print("obs shape in get_action", obs.shape)
         if len(obs.shape) > 1:
             observation = obs
         else:

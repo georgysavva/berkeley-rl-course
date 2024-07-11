@@ -1,10 +1,12 @@
+import pickle
+
 import numpy as np
+import torch
+from torch import nn
 
 from cs285.infrastructure import pytorch_util as ptu
+
 from .base_policy import BasePolicy
-from torch import nn
-import torch
-import pickle
 
 
 def create_linear_layer(W, b) -> nn.Linear:
@@ -58,7 +60,6 @@ class LoadedGaussianPolicy(BasePolicy, nn.Module):
         obsnorm_stdev = np.sqrt(
             np.maximum(0, obsnorm_meansq - np.square(obsnorm_mean)))
         self.obs_dim = obsnorm_mean.shape[-1]
-        print('obs', obsnorm_mean.shape, obsnorm_stdev.shape)
 
         self.obs_norm_mean = nn.Parameter(ptu.from_numpy(obsnorm_mean))
         self.obs_norm_std = nn.Parameter(ptu.from_numpy(obsnorm_stdev))
