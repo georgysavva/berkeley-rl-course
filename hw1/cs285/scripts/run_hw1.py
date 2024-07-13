@@ -21,7 +21,7 @@ from cs285.policies.loaded_gaussian_policy import LoadedGaussianPolicy
 from cs285.policies.MLP_policy import MLPPolicySL
 
 # how many rollouts to save as videos to tensorboard
-MAX_NVIDEO = 2
+MAX_NVIDEO = 5
 MAX_VIDEO_LEN = 40  # we overwrite this in the code below
 
 MJ_ENV_NAMES = ["Ant-v4", "Walker2d-v4", "HalfCheetah-v4", "Hopper-v4"]
@@ -66,6 +66,7 @@ def run_training_loop(params):
 
     # Maximum length for episodes
     params['ep_len'] = params['ep_len'] or env.spec.max_episode_steps
+    print("Max ep length is", params["ep_len"])
     MAX_VIDEO_LEN = params['ep_len']
 
     assert isinstance(env.action_space, gym.spaces.Box), "Environment must be continuous"
@@ -151,7 +152,8 @@ def run_training_loop(params):
         total_envsteps += envsteps_this_batch
         # add collected data to replay buffer
         replay_buffer.add_rollouts(paths)
-
+        print("paths num", len(paths))
+        print("replay buffer len", len(replay_buffer))
         # train agent (using sampled data from replay buffer)
         print('\nTraining agent using sampled data from replay buffer...')
         training_logs = []
@@ -180,8 +182,12 @@ def run_training_loop(params):
         if log_video:
             # save eval rollouts as videos in tensorboard event file
             print('\nCollecting video rollouts eval')
+            # eval_video_paths = utils.sample_n_trajectories(
+            #     env, expert_policy, MAX_NVIDEO, MAX_VIDEO_LEN * 2, True
+            # )
             eval_video_paths = utils.sample_n_trajectories(
-                env, actor, MAX_NVIDEO, MAX_VIDEO_LEN, True)
+                env, actor, MAX_NVIDEO, MAX_VIDEO_LEN * 2, True
+            )
 
             # save videos
             if eval_video_paths is not None:
@@ -196,7 +202,9 @@ def run_training_loop(params):
             print("\nCollecting data for eval...")
             eval_paths, eval_envsteps_this_batch = utils.sample_trajectories(
                 env, actor, params['eval_batch_size'], params['ep_len'])
-
+            # eval_paths, eval_envsteps_this_batch = utils.sample_trajectories(
+            #     env, expert_policy, params["eval_batch_size"], params["ep_len"]
+            # )
             logs = utils.compute_metrics(paths, eval_paths)
             # compute additional metrics
             logs.update(training_logs[-1]) # Only use the last log for now
@@ -241,7 +249,7 @@ def main():
     parser.add_argument('--size', type=int, default=64)  # width of each layer, of policy to be learned
     parser.add_argument('--learning_rate', '-lr', type=float, default=5e-3)  # LR for supervised learning
 
-    parser.add_argument("--video_log_freq", type=int, default=-5)
+    parser.add_argument("--video_log_freq", type=int, default=5)
     parser.add_argument('--scalar_log_freq', type=int, default=1)
     parser.add_argument('--no_gpu', '-ngpu', action='store_true')
     parser.add_argument("--which_gpu", type=int, default=3)

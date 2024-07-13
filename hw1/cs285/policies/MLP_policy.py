@@ -99,7 +99,6 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         )
         self.mean_net.to(ptu.device)
         self.logstd = nn.Parameter(
-
             torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
         )
         self.logstd.to(ptu.device)
@@ -142,7 +141,10 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         """
         # TODO: update the policy and return the loss
         pred = self(observations)
-        loss = pred.log_prob(actions).sum()
+        loss = -pred.log_prob(actions).sum()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         return {
             # You can add extra logging information here, but keep this line
             'Training Loss': ptu.to_numpy(loss),
