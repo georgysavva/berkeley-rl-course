@@ -45,6 +45,7 @@ def build_mlp(
     for _ in range(n_layers):
         layers.append(nn.Linear(in_size, size))
         layers.append(nn.Tanh())
+        # layers.append(nn.ReLU())
         in_size = size
     layers.append(nn.Linear(in_size, output_size))
 
@@ -99,7 +100,8 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         )
         self.mean_net.to(ptu.device)
         self.logstd = nn.Parameter(
-            torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
+            # torch.zeros(self.ac_dim, dtype=torch.float32, device=ptu.device)
+            torch.ones(self.ac_dim, dtype=torch.float32, device=ptu.device)
         )
         self.logstd.to(ptu.device)
         self.optimizer = optim.Adam(
@@ -127,7 +129,9 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         # return more flexible objects, such as a
         # `torch.distributions.Distribution` object. It's up to you!
         mean = self.mean_net(observation)
-        dist = torch.distributions.Normal(mean, torch.exp(self.logstd))
+        # dist = torch.distributions.Normal(mean, torch.exp(self.logstd))
+        dist = torch.distributions.Normal(mean, self.logstd)
+
         return dist
 
     def update(self, observations, actions):
@@ -158,4 +162,5 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         observation = ptu.from_numpy(observation.astype(np.float32))
         action_dist = self(observation)
         action = action_dist.sample()
+        # action = action_dist.mode
         return ptu.to_numpy(action)

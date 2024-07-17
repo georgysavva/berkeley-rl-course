@@ -21,10 +21,10 @@ from cs285.policies.loaded_gaussian_policy import LoadedGaussianPolicy
 from cs285.policies.MLP_policy import MLPPolicySL
 
 # how many rollouts to save as videos to tensorboard
-MAX_NVIDEO = 5
+MAX_NVIDEO = 2
 MAX_VIDEO_LEN = 40  # we overwrite this in the code below
 
-MJ_ENV_NAMES = ["Ant-v4", "Walker2d-v4", "HalfCheetah-v4", "Hopper-v4"]
+MJ_ENV_NAMES = ["Ant-v4", "Walker2d-v4", "HalfCheetah-v4", "Hopper-v4", "Humanoid-v4"]
 
 
 def run_training_loop(params):
@@ -157,7 +157,7 @@ def run_training_loop(params):
         # train agent (using sampled data from replay buffer)
         print('\nTraining agent using sampled data from replay buffer...')
         training_logs = []
-        for _ in range(params["num_agent_train_steps_per_iter"]):
+        for i in range(params["num_agent_train_steps_per_iter"]):
             # TODO: sample some data from replay_buffer
             # HINT1: how much data = params['train_batch_size']
             # HINT2: use np.random.permutation to sample random indices
@@ -176,6 +176,12 @@ def run_training_loop(params):
             # use the sampled data to train an agent
             train_log = actor.update(ptu.from_numpy(ob_batch), ptu.from_numpy(ac_batch))
             training_logs.append(train_log)
+            for key, value in train_log.items():
+                logger.log_scalar(
+                    value,
+                    "Batch " + key,
+                    itr * params["num_agent_train_steps_per_iter"] + i,
+                )
 
         # log/save
         print('\nBeginning logging procedure...')
@@ -186,7 +192,7 @@ def run_training_loop(params):
             #     env, expert_policy, MAX_NVIDEO, MAX_VIDEO_LEN * 2, True
             # )
             eval_video_paths = utils.sample_n_trajectories(
-                env, actor, MAX_NVIDEO, MAX_VIDEO_LEN * 2, True
+                env, actor, MAX_NVIDEO, MAX_VIDEO_LEN, True
             )
 
             # save videos
@@ -236,20 +242,25 @@ def main():
     parser.add_argument('--do_dagger', action='store_true')
     parser.add_argument('--ep_len', type=int)
 
-    parser.add_argument('--num_agent_train_steps_per_iter', type=int, default=1000)  # number of gradient steps for training policy (per iter in n_iter)
+    parser.add_argument(
+        "--num_agent_train_steps_per_iter", type=int, default=5000
+    )  # number of gradient steps for training policy (per iter in n_iter)
     parser.add_argument('--n_iter', '-n', type=int, default=1)
 
     parser.add_argument('--batch_size', type=int, default=1000)  # training data collected (in the env) during each iteration
-    parser.add_argument('--eval_batch_size', type=int,
-                        default=1000)  # eval data collected (in the env) for logging metrics
+    parser.add_argument(
+        "--eval_batch_size", type=int, default=5000
+    )  # eval data collected (in the env) for logging metrics
     parser.add_argument('--train_batch_size', type=int,
                         default=100)  # number of sampled data points to be used per gradient/train step
 
     parser.add_argument('--n_layers', type=int, default=2)  # depth, of policy to be learned
     parser.add_argument('--size', type=int, default=64)  # width of each layer, of policy to be learned
-    parser.add_argument('--learning_rate', '-lr', type=float, default=5e-3)  # LR for supervised learning
+    parser.add_argument(
+        "--learning_rate", "-lr", type=float, default=5e-4
+    )  # LR for supervised learning
 
-    parser.add_argument("--video_log_freq", type=int, default=5)
+    parser.add_argument("--video_log_freq", type=int, default=-1)
     parser.add_argument('--scalar_log_freq', type=int, default=1)
     parser.add_argument('--no_gpu', '-ngpu', action='store_true')
     parser.add_argument("--which_gpu", type=int, default=3)
