@@ -1,0 +1,17 @@
+name: berkeleyrl-hw2
+channels:
+  - anaconda
+  - menpo
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - glew=2.1.0=h9c3ff4c_2
+  - glfw3=3.2.1=0
+  - mesa-libgl-cos6-x86_64=11.0.7=4
+  - mesalib=24.1.3=h3ac77ca_0
+
+variables:
+  MUJOCO_GL: egl
+  PYOPENGL_PLATFORM: egl
+prefix: /home/georgy/miniconda3/envs/berkeleyrl-hw2

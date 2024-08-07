@@ -1,11 +1,13 @@
-from collections import OrderedDict
-import numpy as np
 import copy
-from cs285.networks.policies import MLPPolicy
-import gym
+from collections import OrderedDict
+from typing import Dict, List, Tuple
+
 import cv2
+import gym
+import numpy as np
+
 from cs285.infrastructure import pytorch_util as ptu
-from typing import Dict, Tuple, List
+from cs285.networks.policies import MLPPolicy
 
 ############################################
 ############################################
@@ -29,15 +31,12 @@ def sample_trajectory(
                 cv2.resize(img, dsize=(250, 250), interpolation=cv2.INTER_CUBIC)
             )
 
-        # TODO use the most recent ob and the policy to decide what to do
-        ac: np.ndarray = None
+        ac: np.ndarray = policy.get_action(ob)
 
-        # TODO: use that action to take a step in the environment
-        next_ob, rew, done, _ = None, None, None, None
+        next_ob, rew, done, _ = env.step(ac)
 
-        # TODO rollout can end due to done, or due to max_length
         steps += 1
-        rollout_done: bool = None
+        rollout_done: bool = steps >= max_length or done
 
         # record result of taking that action
         obs.append(ob)
