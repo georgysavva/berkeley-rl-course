@@ -1,4 +1,5 @@
 swig==4.0.2
+numpy==1.26.4
 mujoco==2.2.0
 gym[box2d,classic_control]==0.25.2
 tensorboard==2.10.0
