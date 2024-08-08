@@ -33,7 +33,7 @@ def run_training_loop(args):
 
     max_ep_len = args.ep_len or env.spec.max_episode_steps
     assert max_ep_len is not None, "env must have max episode length"
-
+    print(f"Will use a maximum of {max_ep_len} steps")
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.n if discrete else env.action_space.shape[0]
 
@@ -84,7 +84,7 @@ def run_training_loop(args):
             trajs_dict["terminal"],
         )
 
-        if itr % args.scalar_log_freq == 0:
+        if itr % args.scalar_log_freq == 0 or itr == 1:
             # save eval metrics
             print("\nCollecting data for eval...")
             eval_trajs, _ = utils.sample_trajectories(
@@ -156,7 +156,7 @@ def main():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--no_gpu", "-ngpu", action="store_true")
     parser.add_argument("--which_gpu", "-gpu_id", default=0)
-    parser.add_argument("--video_log_freq", type=int, default=-1)
+    parser.add_argument("--video_log_freq", type=int, default=50)
     parser.add_argument("--scalar_log_freq", type=int, default=1)
 
     parser.add_argument("--action_noise_std", type=float, default=0)
