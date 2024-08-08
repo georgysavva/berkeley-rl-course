@@ -1,19 +1,15 @@
 import os
 import time
 
-from cs285.agents.pg_agent import PGAgent
-
-import os
-import time
-
 import gym
 import numpy as np
 import torch
-from cs285.infrastructure import pytorch_util as ptu
 
+from cs285.agents.pg_agent import PGAgent
+from cs285.infrastructure import pytorch_util as ptu
 from cs285.infrastructure import utils
-from cs285.infrastructure.logger import Logger
 from cs285.infrastructure.action_noise_wrapper import ActionNoiseWrapper
+from cs285.infrastructure.logger import Logger
 
 MAX_NVIDEO = 2
 
@@ -36,6 +32,7 @@ def run_training_loop(args):
         env = ActionNoiseWrapper(env, args.seed, args.action_noise_std)
 
     max_ep_len = args.ep_len or env.spec.max_episode_steps
+    assert max_ep_len is not None, "env must have max episode length"
 
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.n if discrete else env.action_space.shape[0]
@@ -68,17 +65,24 @@ def run_training_loop(args):
 
     for itr in range(args.n_iter):
         print(f"\n********** Iteration {itr} ************")
-        # TODO: sample `args.batch_size` transitions using utils.sample_trajectories
+        # sample `args.batch_size` transitions using utils.sample_trajectories
         # make sure to use `max_ep_len`
-        trajs, envsteps_this_batch = None, None  # TODO
+        trajs, envsteps_this_batch = utils.sample_trajectories(
+            env, agent.actor, args.batch_size, max_ep_len
+        )
         total_envsteps += envsteps_this_batch
 
         # trajs should be a list of dictionaries of NumPy arrays, where each dictionary corresponds to a trajectory.
         # this line converts this into a single dictionary of lists of NumPy arrays.
         trajs_dict = {k: [traj[k] for traj in trajs] for k in trajs[0]}
 
-        # TODO: train the agent using the sampled trajectories and the agent's update function
-        train_info: dict = None
+        # train the agent using the sampled trajectories and the agent's update function
+        train_info: dict = agent.update(
+            trajs_dict["observation"],
+            trajs_dict["action"],
+            trajs_dict["reward"],
+            trajs_dict["terminal"],
+        )
 
         if itr % args.scalar_log_freq == 0:
             # save eval metrics
