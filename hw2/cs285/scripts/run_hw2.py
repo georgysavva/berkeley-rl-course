@@ -63,7 +63,7 @@ def run_training_loop(args):
     total_envsteps = 0
     start_time = time.time()
 
-    for itr in range(args.n_iter):
+    for itr in range(1, args.n_iter + 1):
         print(f"\n********** Iteration {itr} ************")
         # sample `args.batch_size` transitions using utils.sample_trajectories
         # make sure to use `max_ep_len`
@@ -87,7 +87,7 @@ def run_training_loop(args):
         if itr % args.scalar_log_freq == 0:
             # save eval metrics
             print("\nCollecting data for eval...")
-            eval_trajs, eval_envsteps_this_batch = utils.sample_trajectories(
+            eval_trajs, _ = utils.sample_trajectories(
                 env, agent.actor, args.eval_batch_size, max_ep_len
             )
 
@@ -96,7 +96,7 @@ def run_training_loop(args):
             logs.update(train_info)
             logs["Train_EnvstepsSoFar"] = total_envsteps
             logs["TimeSinceStart"] = time.time() - start_time
-            if itr == 0:
+            if itr == 1:
                 logs["Initial_DataCollection_AverageReturn"] = logs[
                     "Train_AverageReturn"
                 ]

@@ -56,13 +56,13 @@ class MLPPolicy(nn.Module):
     @torch.no_grad()
     def get_action(self, obs: np.ndarray, deterministic=False) -> np.ndarray:
         """Takes a single observation (as a numpy array) and returns a single action (as a numpy array)."""
-
-        dist = self(obs)
+        obs_t = ptu.from_numpy(obs)
+        dist = self(obs_t)
         if deterministic:
-            action = dist.mode
+            action_t = dist.mode
         else:
-            action = dist.sample()
-
+            action_t = dist.sample()
+        action = ptu.to_numpy(action_t)
         return action
 
     def forward(self, obs: torch.Tensor):

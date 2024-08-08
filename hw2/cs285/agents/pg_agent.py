@@ -166,7 +166,9 @@ class PGAgent(nn.Module):
         involve t)!
         """
         gammas = self.gamma ** np.arange(len(rewards))
-        return (gammas * rewards).sum() * np.ones(len(rewards))
+        discounted_rewards = gammas * rewards
+        result = discounted_rewards.sum() * np.ones(len(rewards))
+        return result
 
     def _discounted_reward_to_go(self, rewards: np.ndarray) -> np.ndarray:
         """
@@ -174,4 +176,7 @@ class PGAgent(nn.Module):
         in each index t' is sum_{t'=t}^T gamma^(t'-t) * r_{t'}.
         """
         gammas = self.gamma ** np.arange(len(rewards))
-        return np.cumsum(gammas * rewards[::-1])[::-1] / gammas
+        discounted_rewards = gammas * rewards
+        rewards_to_go = np.cumsum(discounted_rewards[::-1])[::-1]
+        result = rewards_to_go / gammas
+        return result
