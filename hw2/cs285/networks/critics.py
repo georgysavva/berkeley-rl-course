@@ -1,11 +1,7 @@
-import itertools
-from torch import nn
-from torch.nn import functional as F
-from torch import optim
-
 import numpy as np
 import torch
-from torch import distributions
+from torch import distributions, nn, optim
+from torch.nn import functional as F
 
 from cs285.infrastructure import pytorch_util as ptu
 
@@ -33,19 +29,26 @@ class ValueCritic(nn.Module):
             self.network.parameters(),
             learning_rate,
         )
+        self.mse = nn.MSELoss()
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        # TODO: implement the forward pass of the critic network
-        pass
-        
+        return self.network(obs)
 
     def update(self, obs: np.ndarray, q_values: np.ndarray) -> dict:
         obs = ptu.from_numpy(obs)
         q_values = ptu.from_numpy(q_values)
+        q_values = q_values.unsqueeze(1)
 
-        # TODO: update the critic using the observations and q_values
-        loss = None
-
+        # update the critic using the observations and q_values
+        pred = self.network(obs)
+        loss = self.mse(pred, q_values)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         return {
             "Baseline Loss": ptu.to_numpy(loss),
         }
+
+    def predict(self, obs: np.ndarray) -> np.ndarray:
+        obs = ptu.from_numpy(obs)
+        return ptu.to_numpy(self.network(obs)).squeeze()

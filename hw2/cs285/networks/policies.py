@@ -83,14 +83,7 @@ class MLPPolicy(nn.Module):
 
     def update(self, obs: np.ndarray, actions: np.ndarray, *args, **kwargs) -> dict:
         """Performs one iteration of gradient descent on the provided batch of data."""
-        obs_t = ptu.from_numpy(obs)
-        actions_t = ptu.from_numpy(actions)
-        dist = self.forward(obs_t)
-        loss = -dist.log_prob(actions_t).sum()
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        return {"Training Loss": ptu.to_numpy(loss)}
+        raise NotImplementedError
 
 
 class MLPPolicyPG(MLPPolicy):
@@ -106,7 +99,7 @@ class MLPPolicyPG(MLPPolicy):
         obs_t = ptu.from_numpy(obs)
         actions_t = ptu.from_numpy(actions)
         advantages_t = ptu.from_numpy(advantages)
-
+        advantages_t = advantages_t.unsqueeze(-1)
         dist = self.forward(obs_t)
         loss = -(dist.log_prob(actions_t) * advantages_t).sum()
         self.optimizer.zero_grad()
