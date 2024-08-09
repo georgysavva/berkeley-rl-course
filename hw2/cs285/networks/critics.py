@@ -49,6 +49,7 @@ class ValueCritic(nn.Module):
             "Baseline Loss": ptu.to_numpy(loss),
         }
 
+    @torch.no_grad()
     def predict(self, obs: np.ndarray) -> np.ndarray:
         obs = ptu.from_numpy(obs)
         return ptu.to_numpy(self.network(obs)).squeeze()
