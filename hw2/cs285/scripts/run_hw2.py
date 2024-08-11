@@ -87,15 +87,20 @@ def run_training_loop(args):
         if itr % args.scalar_log_freq == 0 or itr == 1:
             # save eval metrics
             print("\nCollecting data for eval...")
-            eval_trajs, _ = utils.sample_trajectories(
-                env,
-                agent.actor,
-                args.eval_batch_size,
-                max_ep_len,
-                deterministic_predict=args.deterministic_eval,
-            )
+            trajs_groups = [("Train", trajs)]
+            for deterministic in [False, True]:
+                eval_trajs, _ = utils.sample_trajectories(
+                    env,
+                    agent.actor,
+                    args.eval_batch_size,
+                    max_ep_len,
+                    deterministic_predict=deterministic,
+                )
+                trajs_groups.append(
+                    ("Eval_deterministic" if deterministic else "Eval", eval_trajs)
+                )
 
-            logs = utils.compute_metrics(trajs, eval_trajs)
+            logs = utils.compute_metrics(trajs_groups)
             # compute additional metrics
             logs.update(train_info)
             logs["Train_EnvstepsSoFar"] = total_envsteps
@@ -104,8 +109,8 @@ def run_training_loop(args):
                 logs["Initial_DataCollection_AverageReturn"] = logs[
                     "Train_AverageReturn"
                 ]
-
             # perform the logging
+
             for key, value in logs.items():
                 print("{} : {}".format(key, value))
                 logger.log_scalar(value, key, itr)
@@ -115,22 +120,27 @@ def run_training_loop(args):
 
         if args.video_log_freq != -1 and itr % args.video_log_freq == 0:
             print("\nCollecting video rollouts...")
-            eval_video_trajs = utils.sample_n_trajectories(
-                env,
-                agent.actor,
-                MAX_NVIDEO,
-                max_ep_len,
-                render=True,
-                deterministic_predict=args.deterministic_eval,
-            )
+            for deterministic in [False, True]:
+                eval_video_trajs = utils.sample_n_trajectories(
+                    env,
+                    agent.actor,
+                    MAX_NVIDEO,
+                    max_ep_len,
+                    render=True,
+                    deterministic_predict=deterministic,
+                )
 
-            logger.log_trajs_as_videos(
-                eval_video_trajs,
-                itr,
-                fps=fps,
-                max_videos_to_save=MAX_NVIDEO,
-                video_title="eval_rollouts",
-            )
+                logger.log_trajs_as_videos(
+                    eval_video_trajs,
+                    itr,
+                    fps=fps,
+                    max_videos_to_save=MAX_NVIDEO,
+                    video_title=(
+                        "eval_rollouts_deterministic"
+                        if deterministic
+                        else "eval_rollouts"
+                    ),
+                )
 
 
 def main():
@@ -153,13 +163,11 @@ def main():
     parser.add_argument(
         "--eval_batch_size", "-eb", type=int, default=400
     )  # steps collected per eval iteration
-    parser.add_argument("--deterministic_eval", "-de", action="store_true")
 
     parser.add_argument("--discount", type=float, default=1.0)
     parser.add_argument("--learning_rate", "-lr", type=float, default=5e-3)
     parser.add_argument("--n_layers", "-l", type=int, default=2)
     parser.add_argument("--layer_size", "-s", type=int, default=64)
-
     parser.add_argument(
         "--ep_len", type=int
     )  # students shouldn't change this away from env's default

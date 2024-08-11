@@ -103,30 +103,21 @@ def sample_n_trajectories(
     return trajs
 
 
-def compute_metrics(trajs, eval_trajs):
+def compute_metrics(trajs_groups):
     """Compute metrics for logging."""
 
     # returns, for logging
-    train_returns = [traj["reward"].sum() for traj in trajs]
-    eval_returns = [eval_traj["reward"].sum() for eval_traj in eval_trajs]
-
-    # episode lengths, for logging
-    train_ep_lens = [len(traj["reward"]) for traj in trajs]
-    eval_ep_lens = [len(eval_traj["reward"]) for eval_traj in eval_trajs]
 
     # decide what to log
     logs = OrderedDict()
-    logs["Eval_AverageReturn"] = np.mean(eval_returns)
-    logs["Eval_StdReturn"] = np.std(eval_returns)
-    logs["Eval_MaxReturn"] = np.max(eval_returns)
-    logs["Eval_MinReturn"] = np.min(eval_returns)
-    logs["Eval_AverageEpLen"] = np.mean(eval_ep_lens)
-
-    logs["Train_AverageReturn"] = np.mean(train_returns)
-    logs["Train_StdReturn"] = np.std(train_returns)
-    logs["Train_MaxReturn"] = np.max(train_returns)
-    logs["Train_MinReturn"] = np.min(train_returns)
-    logs["Train_AverageEpLen"] = np.mean(train_ep_lens)
+    for name, trajs in trajs_groups:
+        returns = [traj["reward"].sum() for traj in trajs]
+        ep_lens = [len(traj["reward"]) for traj in trajs]
+        logs[name + "_AverageReturn"] = np.mean(returns)
+        logs[name + "_StdReturn"] = np.std(returns)
+        logs[name + "_MaxReturn"] = np.max(returns)
+        logs[name + "_MinReturn"] = np.min(returns)
+        logs[name + "_AverageEpLen"] = np.mean(ep_lens)
 
     return logs
 
