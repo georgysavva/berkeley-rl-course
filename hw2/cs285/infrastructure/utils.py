@@ -14,7 +14,11 @@ from cs285.networks.policies import MLPPolicy
 
 
 def sample_trajectory(
-    env: gym.Env, policy: MLPPolicy, max_length: int, render: bool = False
+    env: gym.Env,
+    policy: MLPPolicy,
+    max_length: int,
+    render: bool = False,
+    deterministic_predict: bool = False,
 ) -> Dict[str, np.ndarray]:
     """Sample a rollout in the environment from a policy."""
     ob = env.reset()
@@ -31,7 +35,7 @@ def sample_trajectory(
                 cv2.resize(img, dsize=(250, 250), interpolation=cv2.INTER_CUBIC)
             )
 
-        ac: np.ndarray = policy.get_action(ob)
+        ac: np.ndarray = policy.get_action(ob, deterministic=deterministic_predict)
 
         next_ob, rew, done, _ = env.step(ac)
 
@@ -67,13 +71,14 @@ def sample_trajectories(
     min_timesteps_per_batch: int,
     max_length: int,
     render: bool = False,
+    deterministic_predict: bool = False,
 ) -> Tuple[List[Dict[str, np.ndarray]], int]:
     """Collect rollouts using policy until we have collected min_timesteps_per_batch steps."""
     timesteps_this_batch = 0
     trajs = []
     while timesteps_this_batch < min_timesteps_per_batch:
         # collect rollout
-        traj = sample_trajectory(env, policy, max_length, render)
+        traj = sample_trajectory(env, policy, max_length, render, deterministic_predict)
         trajs.append(traj)
 
         # count steps
@@ -82,13 +87,18 @@ def sample_trajectories(
 
 
 def sample_n_trajectories(
-    env: gym.Env, policy: MLPPolicy, ntraj: int, max_length: int, render: bool = False
+    env: gym.Env,
+    policy: MLPPolicy,
+    ntraj: int,
+    max_length: int,
+    render: bool = False,
+    deterministic_predict: bool = False,
 ):
     """Collect ntraj rollouts."""
     trajs = []
     for _ in range(ntraj):
         # collect rollout
-        traj = sample_trajectory(env, policy, max_length, render)
+        traj = sample_trajectory(env, policy, max_length, render, deterministic_predict)
         trajs.append(traj)
     return trajs
 

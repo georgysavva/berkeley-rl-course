@@ -88,7 +88,11 @@ def run_training_loop(args):
             # save eval metrics
             print("\nCollecting data for eval...")
             eval_trajs, _ = utils.sample_trajectories(
-                env, agent.actor, args.eval_batch_size, max_ep_len
+                env,
+                agent.actor,
+                args.eval_batch_size,
+                max_ep_len,
+                deterministic_predict=args.deterministic_eval,
             )
 
             logs = utils.compute_metrics(trajs, eval_trajs)
@@ -112,7 +116,12 @@ def run_training_loop(args):
         if args.video_log_freq != -1 and itr % args.video_log_freq == 0:
             print("\nCollecting video rollouts...")
             eval_video_trajs = utils.sample_n_trajectories(
-                env, agent.actor, MAX_NVIDEO, max_ep_len, render=True
+                env,
+                agent.actor,
+                MAX_NVIDEO,
+                max_ep_len,
+                render=True,
+                deterministic_predict=args.deterministic_eval,
             )
 
             logger.log_trajs_as_videos(
@@ -144,6 +153,7 @@ def main():
     parser.add_argument(
         "--eval_batch_size", "-eb", type=int, default=400
     )  # steps collected per eval iteration
+    parser.add_argument("--deterministic_eval", "-de", action="store_true")
 
     parser.add_argument("--discount", type=float, default=1.0)
     parser.add_argument("--learning_rate", "-lr", type=float, default=5e-3)
