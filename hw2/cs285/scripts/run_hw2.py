@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -63,7 +64,7 @@ def run_training_loop(args):
     total_envsteps = 0
     start_time = time.time()
 
-    for itr in range(1, args.n_iter + 1):
+    for itr in range(args.n_iter):
         print(f"\n********** Iteration {itr} ************")
         # sample `args.batch_size` transitions using utils.sample_trajectories
         # make sure to use `max_ep_len`
@@ -84,7 +85,7 @@ def run_training_loop(args):
             trajs_dict["terminal"],
         )
 
-        if itr % args.scalar_log_freq == 0 or itr == 1:
+        if itr % args.scalar_log_freq == 0:
             # save eval metrics
             print("\nCollecting data for eval...")
             trajs_groups = [("Train", trajs)]
@@ -105,7 +106,7 @@ def run_training_loop(args):
             logs.update(train_info)
             logs["Train_EnvstepsSoFar"] = total_envsteps
             logs["TimeSinceStart"] = time.time() - start_time
-            if itr == 1:
+            if itr == 0:
                 logs["Initial_DataCollection_AverageReturn"] = logs[
                     "Train_AverageReturn"
                 ]
@@ -185,7 +186,6 @@ def main():
     logdir_prefix = "q2_pg_"  # keep for autograder
 
     data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../data")
-
     if not (os.path.exists(data_path)):
         os.makedirs(data_path)
 
@@ -201,7 +201,8 @@ def main():
     args.logdir = logdir
     if not (os.path.exists(logdir)):
         os.makedirs(logdir)
-
+    with open(os.path.join(logdir, "params.json"), "w") as f:
+        json.dump(vars(args), f, indent=4)
     run_training_loop(args)
 
 

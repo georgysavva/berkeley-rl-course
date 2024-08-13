@@ -78,7 +78,9 @@ def sample_trajectories(
     trajs = []
     while timesteps_this_batch < min_timesteps_per_batch:
         # collect rollout
-        traj = sample_trajectory(env, policy, max_length, render, deterministic_predict)
+        traj = sample_trajectory(
+            env, policy, max_length, render, deterministic_predict=deterministic_predict
+        )
         trajs.append(traj)
 
         # count steps
@@ -98,7 +100,9 @@ def sample_n_trajectories(
     trajs = []
     for _ in range(ntraj):
         # collect rollout
-        traj = sample_trajectory(env, policy, max_length, render, deterministic_predict)
+        traj = sample_trajectory(
+            env, policy, max_length, render, deterministic_predict=deterministic_predict
+        )
         trajs.append(traj)
     return trajs
 
