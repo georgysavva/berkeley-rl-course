@@ -100,7 +100,7 @@ class MLPPolicyPG(MLPPolicy):
         advantages_t = ptu.from_numpy(advantages)
         advantages_t = advantages_t.unsqueeze(-1)
         dist = self.forward(obs_t)
-        loss = -(dist.log_prob(actions_t) * advantages_t).sum()
+        loss = -(dist.log_prob(actions_t) * advantages_t).mean()
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()

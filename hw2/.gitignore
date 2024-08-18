@@ -1,2 +1,4 @@
 .vscode/
 data/
+wandb/
+optuna_studies.db

@@ -126,6 +126,12 @@ def compute_metrics(trajs_groups):
     return logs
 
 
+def compute_average_return(trajs):
+    """Compute average return."""
+    returns = [traj["reward"].sum() for traj in trajs]
+    return np.mean(returns)
+
+
 def convert_listofrollouts(trajs):
     """
     Take a list of rollout dictionaries and return separate arrays, where each array is a concatenation of that array
@@ -149,3 +155,11 @@ def convert_listofrollouts(trajs):
 
 def get_traj_length(traj):
     return len(traj["reward"])
+
+
+class AttrDict(dict):
+    def __getattr__(self, item):
+        try:
+            return self[item]
+        except KeyError:
+            raise AttributeError(f"'AttrDict' object has no attribute '{item}'")

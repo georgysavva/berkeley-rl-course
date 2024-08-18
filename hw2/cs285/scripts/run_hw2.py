@@ -1,38 +1,44 @@
-import json
-import os
+import functools
 import time
 
 import gym
 import numpy as np
+import optuna
 import torch
 
+import wandb
 from cs285.agents.pg_agent import PGAgent
 from cs285.infrastructure import pytorch_util as ptu
 from cs285.infrastructure import utils
-from cs285.infrastructure.action_noise_wrapper import ActionNoiseWrapper
-from cs285.infrastructure.logger import Logger
+from cs285.infrastructure.logger import prepare_trajs_as_videos
 
 MAX_NVIDEO = 2
 
 
-def run_training_loop(args):
-    logger = Logger(args.logdir)
-
+def run_training_loop(config, training_callback):
+    wandb_project = config.pop("wandb_project")
+    wandb_group = config.pop("study_name", None)
+    wandb.init(
+        project=wandb_project,
+        config=config,
+        group=wandb_group,
+        reinit=True,
+    )
     # set random seeds
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    ptu.init_gpu(use_gpu=not args.no_gpu, gpu_id=args.which_gpu)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+    ptu.init_gpu(use_gpu=True, gpu_id=config.which_gpu)
 
     # make the gym environment
-    env = gym.make(args.env_name, render_mode=None)
+    env = gym.make(config.env_name, render_mode=None)
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
 
-    # add action noise, if needed
-    if args.action_noise_std > 0:
-        assert not discrete, f"Cannot use --action_noise_std for discrete environment {args.env_name}"
-        env = ActionNoiseWrapper(env, args.seed, args.action_noise_std)
+    # # add action noise, if needed
+    # if args.action_noise_std > 0:
+    #     assert not discrete, f"Cannot use --action_noise_std for discrete environment {args.env_name}"
+    #     env = ActionNoiseWrapper(env, args.seed, args.action_noise_std)
 
-    max_ep_len = args.ep_len or env.spec.max_episode_steps
+    max_ep_len = config.ep_len or env.spec.max_episode_steps
     assert max_ep_len is not None, "env must have max episode length"
     print(f"Will use a maximum of {max_ep_len} steps")
     ob_dim = env.observation_space.shape[0]
@@ -49,27 +55,27 @@ def run_training_loop(args):
         ob_dim,
         ac_dim,
         discrete,
-        n_layers=args.n_layers,
-        layer_size=args.layer_size,
-        gamma=args.discount,
-        learning_rate=args.learning_rate,
-        use_baseline=args.use_baseline,
-        use_reward_to_go=args.use_reward_to_go,
-        normalize_advantages=args.normalize_advantages,
-        baseline_learning_rate=args.baseline_learning_rate,
-        baseline_gradient_steps=args.baseline_gradient_steps,
-        gae_lambda=args.gae_lambda,
+        n_layers=config.n_layers,
+        layer_size=config.layer_size,
+        gamma=config.discount,
+        learning_rate=config.learning_rate,
+        use_baseline=config.use_baseline,
+        use_reward_to_go=config.use_reward_to_go,
+        normalize_advantages=config.normalize_advantages,
+        baseline_learning_rate=config.baseline_learning_rate,
+        baseline_gradient_steps=config.baseline_gradient_steps,
+        gae_lambda=config.gae_lambda,
     )
 
     total_envsteps = 0
     start_time = time.time()
-
-    for itr in range(args.n_iter):
+    eval_reward = 0.0
+    for itr in range(config.n_iter):
         print(f"\n********** Iteration {itr} ************")
         # sample `args.batch_size` transitions using utils.sample_trajectories
         # make sure to use `max_ep_len`
         trajs, envsteps_this_batch = utils.sample_trajectories(
-            env, agent.actor, args.batch_size, max_ep_len
+            env, agent.actor, config.batch_size, max_ep_len
         )
         total_envsteps += envsteps_this_batch
 
@@ -85,22 +91,19 @@ def run_training_loop(args):
             trajs_dict["terminal"],
         )
 
-        if itr % args.scalar_log_freq == 0:
+        if itr % config.scalar_log_freq == 0:
             # save eval metrics
             print("\nCollecting data for eval...")
             trajs_groups = [("Train", trajs)]
-            for deterministic in [False, True]:
-                eval_trajs, _ = utils.sample_trajectories(
-                    env,
-                    agent.actor,
-                    args.eval_batch_size,
-                    max_ep_len,
-                    deterministic_predict=deterministic,
-                )
-                trajs_groups.append(
-                    ("Eval_deterministic" if deterministic else "Eval", eval_trajs)
-                )
-
+            eval_trajs, _ = utils.sample_trajectories(
+                env,
+                agent.actor,
+                config.eval_batch_size,
+                max_ep_len,
+                deterministic_predict=config.deterministic_eval,
+            )
+            trajs_groups.append(("Eval", eval_trajs))
+            eval_reward = utils.compute_average_return(eval_trajs)
             logs = utils.compute_metrics(trajs_groups)
             # compute additional metrics
             logs.update(train_info)
@@ -114,96 +117,102 @@ def run_training_loop(args):
 
             for key, value in logs.items():
                 print("{} : {}".format(key, value))
-                logger.log_scalar(value, key, itr)
+            wandb.log(logs, step=itr)
             print("Done logging...\n\n")
 
-            logger.flush()
-
-        if args.video_log_freq != -1 and itr % args.video_log_freq == 0:
+        if config.video_log_freq != -1 and itr % config.video_log_freq == 0:
             print("\nCollecting video rollouts...")
-            for deterministic in [False, True]:
-                eval_video_trajs = utils.sample_n_trajectories(
-                    env,
-                    agent.actor,
-                    MAX_NVIDEO,
-                    max_ep_len,
-                    render=True,
-                    deterministic_predict=deterministic,
-                )
+            eval_video_trajs = utils.sample_n_trajectories(
+                env,
+                agent.actor,
+                MAX_NVIDEO,
+                max_ep_len,
+                render=True,
+                deterministic_predict=config.deterministic_eval,
+            )
+            videos = prepare_trajs_as_videos(eval_video_trajs, MAX_NVIDEO)
+            wandb.log({"eval_rollouts": wandb.Video(videos, fps=fps)})
+            training_callback(itr, eval_reward)
 
-                logger.log_trajs_as_videos(
-                    eval_video_trajs,
-                    itr,
-                    fps=fps,
-                    max_videos_to_save=MAX_NVIDEO,
-                    video_title=(
-                        "eval_rollouts_deterministic"
-                        if deterministic
-                        else "eval_rollouts"
-                    ),
-                )
+    return eval_reward
+
+
+def objective(config, trial: optuna.Trial):
+    hyper_params = get_hyper_parameters(trial)
+    config = {
+        **config,
+        **hyper_params,
+        **trial.study.user_attrs,
+        "trial_number": trial.number,
+    }
+    config = utils.AttrDict(config)
+
+    def training_callback(iteration, eval_return):
+        trial.report(eval_return, step=iteration)
+        if trial.should_prune():
+            wandb.run.summary["state"] = "pruned"
+            wandb.finish(quiet=True)
+            raise optuna.TrialPruned()
+
+    result = run_training_loop(config, training_callback)
+    wandb.finish(quiet=True)
+    return result
+
+
+def get_hyper_parameters(trial: optuna.Trial):
+    hyperparams = {
+        "n_layers": trial.suggest_int("n_layers", 1, 3),
+        "layer_size": trial.suggest_int("layer_size", 32, 256),
+        "discount": trial.suggest_float("discount", 0.9, 0.99, step=0.01),
+        "learning_rate": trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True),
+        "use_baseline": trial.suggest_categorical("use_baseline", [True]),
+        "use_reward_to_go": trial.suggest_categorical("use_reward_to_go", [True]),
+        "normalize_advantages": trial.suggest_categorical(
+            "normalize_advantages", [True]
+        ),
+        "baseline_learning_rate": trial.suggest_float(
+            "baseline_learning_rate", 1e-4, 1e-2, log=True
+        ),
+        "baseline_gradient_steps": trial.suggest_categorical(
+            "baseline_gradient_steps", [1, 5, 10, 25, 50]
+        ),
+        "gae_lambda": trial.suggest_categorical(
+            "gae_lambda", [0, 0.95, 0.97, 0.98, 0.99, 1]
+        ),
+        "batch_size": trial.suggest_categorical(
+            "batch_size", [1000, 5000, 25000, 50000, 100000]
+        ),
+        "deterministic_eval": trial.suggest_categorical("deterministic", [False, True]),
+    }
+    return hyperparams
 
 
 def main():
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_name", type=str, required=True)
-    parser.add_argument("--exp_name", type=str, required=True)
-    parser.add_argument("--n_iter", "-n", type=int, default=200)
 
-    parser.add_argument("--use_reward_to_go", "-rtg", action="store_true")
-    parser.add_argument("--use_baseline", action="store_true")
-    parser.add_argument("--baseline_learning_rate", "-blr", type=float, default=5e-3)
-    parser.add_argument("--baseline_gradient_steps", "-bgs", type=int, default=5)
-    parser.add_argument("--gae_lambda", type=float, default=None)
-    parser.add_argument("--normalize_advantages", "-na", action="store_true")
-    parser.add_argument(
-        "--batch_size", "-b", type=int, default=1000
-    )  # steps collected per train iteration
-    parser.add_argument(
-        "--eval_batch_size", "-eb", type=int, default=400
-    )  # steps collected per eval iteration
-
-    parser.add_argument("--discount", type=float, default=1.0)
-    parser.add_argument("--learning_rate", "-lr", type=float, default=5e-3)
-    parser.add_argument("--n_layers", "-l", type=int, default=2)
-    parser.add_argument("--layer_size", "-s", type=int, default=64)
-    parser.add_argument(
-        "--ep_len", type=int
-    )  # students shouldn't change this away from env's default
-    parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--no_gpu", "-ngpu", action="store_true")
     parser.add_argument("--which_gpu", "-gpu_id", default=0)
-    parser.add_argument("--video_log_freq", type=int, default=50)
-    parser.add_argument("--scalar_log_freq", type=int, default=1)
+    parser.add_argument("--wandb_project", type=str, default="berkeleyrl-hw2")
 
-    parser.add_argument("--action_noise_std", type=float, default=0)
+    parser.add_argument("--study_name", type=str)
+    parser.add_argument(
+        "--study_storage", type=str, default="sqlite:///optuna_studies.db"
+    )
+    parser.add_argument("--study_sampler", type=str, default="RandomSampler")
+    parser.add_argument("--study_pruner", type=str, default="NopPruner")
+    parser.add_argument("--n_trials", type=int, default=100)
 
     args = parser.parse_args()
-
-    # create directory for logging
-    logdir_prefix = "q2_pg_"  # keep for autograder
-
-    data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../data")
-    if not (os.path.exists(data_path)):
-        os.makedirs(data_path)
-
-    logdir = (
-        logdir_prefix
-        + args.exp_name
-        + "_"
-        + args.env_name
-        + "_"
-        + time.strftime("%d-%m-%Y_%H-%M-%S")
+    study = optuna.load_study(
+        study_name=args.study_name,
+        sampler=getattr(optuna.samplers, args.study_sampler)(),
+        pruner=getattr(optuna.pruners, args.study_pruner)(),
+        storage=args.study_storage,
     )
-    logdir = os.path.join(data_path, logdir)
-    args.logdir = logdir
-    if not (os.path.exists(logdir)):
-        os.makedirs(logdir)
-    with open(os.path.join(logdir, "params.json"), "w") as f:
-        json.dump(vars(args), f, indent=4)
-    run_training_loop(args)
+    config = vars(args)
+    config.pop("study_storage")
+    study.optimize(functools.partial(objective, config), n_trials=args.n_trials)  # type: ignore
 
 
 if __name__ == "__main__":
