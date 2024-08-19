@@ -135,7 +135,7 @@ def run_training_loop(config, training_callback):
                 deterministic_predict=config.deterministic_eval,
             )
             videos = prepare_trajs_as_videos(eval_video_trajs, MAX_NVIDEO)
-            wandb.log({"eval_rollouts": wandb.Video(videos, fps=fps)})
+            wandb.log({"EvalRollouts": wandb.Video(videos, fps=fps)}, step=itr)
             training_callback(itr, eval_reward)
 
     return eval_reward
@@ -167,7 +167,7 @@ def get_hyper_parameters(trial: optuna.Trial):
     hyperparams = {
         "n_layers": trial.suggest_int("n_layers", 2, 3),
         "layer_size": trial.suggest_categorical("layer_size", [64, 128, 256]),
-        "discount": trial.suggest_float("discount", 0.95, 0.99, step=0.01),
+        "discount": trial.suggest_float("discount", 0.95, 0.99, step=0.02),
         "learning_rate": trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True),
         "use_baseline": trial.suggest_categorical("use_baseline", [True]),
         "use_reward_to_go": trial.suggest_categorical("use_reward_to_go", [True]),

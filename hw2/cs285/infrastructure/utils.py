@@ -117,11 +117,11 @@ def compute_metrics(trajs_groups):
     for name, trajs in trajs_groups:
         returns = [traj["reward"].sum() for traj in trajs]
         ep_lens = [len(traj["reward"]) for traj in trajs]
-        logs[name + "_AverageReturn"] = np.mean(returns)
-        logs[name + "_StdReturn"] = np.std(returns)
-        logs[name + "_MaxReturn"] = np.max(returns)
-        logs[name + "_MinReturn"] = np.min(returns)
-        logs[name + "_AverageEpLen"] = np.mean(ep_lens)
+        logs[name + "/AverageReturn"] = np.mean(returns)
+        logs[name + "/StdReturn"] = np.std(returns)
+        logs[name + "/MaxReturn"] = np.max(returns)
+        logs[name + "/MinReturn"] = np.min(returns)
+        logs[name + "/AverageEpLen"] = np.mean(ep_lens)
 
     return logs
 
