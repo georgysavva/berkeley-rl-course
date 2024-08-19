@@ -1,4 +1,5 @@
 import functools
+import json
 import time
 
 import gym
@@ -17,13 +18,16 @@ MAX_NVIDEO = 2
 
 def run_training_loop(config, training_callback):
     wandb_project = config.pop("wandb_project")
-    wandb_group = config.pop("study_name", None)
     wandb.init(
         project=wandb_project,
         config=config,
-        group=wandb_group,
+        group=config.study_name,
+        tags=[config.env_name, config.study_name],
         reinit=True,
     )
+    print("Run training with config:")
+    print(json.dumps(config, indent=4))
+
     # set random seeds
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
@@ -187,13 +191,15 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--study_name", type=str, required=True)
 
     parser.add_argument("--which_gpu", "-gpu_id", default=0)
     parser.add_argument("--wandb_project", type=str, default="berkeleyrl-hw2")
 
-    parser.add_argument("--study_name", type=str)
     parser.add_argument(
-        "--study_storage", type=str, default="sqlite:///optuna_studies.db"
+        "--study_storage",
+        type=str,
+        default="mysql://root:password@localhost/berkeleyrl_hw2_studies",
     )
     parser.add_argument("--sampler", type=str, default="TPESampler")
     parser.add_argument("--pruner", type=str, default="HyperbandPruner")

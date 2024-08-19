@@ -6,10 +6,12 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_name", type=str, required=True)
+    parser.add_argument("--study", type=str, required=True)
+
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--n_iter", "-n", type=int, default=200)
+    parser.add_argument("--n_iter", "-n", type=int, default=1000)
     parser.add_argument(
-        "--eval_batch_size", "-eb", type=int, default=400
+        "--eval_batch_size", "-eb", type=int, default=2000
     )  # steps collected per eval iteration
     parser.add_argument(
         "--ep_len", type=int
@@ -17,9 +19,10 @@ def main():
     parser.add_argument("--video_log_freq", type=int, default=50)
     parser.add_argument("--scalar_log_freq", type=int, default=1)
 
-    parser.add_argument("--study", type=str)
     parser.add_argument(
-        "--study_storage", type=str, default="sqlite:///optuna_studies.db"
+        "--study_storage",
+        type=str,
+        default="mysql://root:password@localhost/berkeleyrl_hw2_studies",
     )
 
     args = parser.parse_args()
@@ -34,7 +37,6 @@ def main():
     study.set_user_attr("video_log_freq", args.video_log_freq)
     study.set_user_attr("scalar_log_freq", args.scalar_log_freq)
     study.set_user_attr("seed", args.seed)
-    print("study_name:", study.study_name)
 
 
 if __name__ == "__main__":
