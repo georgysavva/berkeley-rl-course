@@ -161,9 +161,9 @@ def objective(config, trial: optuna.Trial):
 
 def get_hyper_parameters(trial: optuna.Trial):
     hyperparams = {
-        "n_layers": trial.suggest_int("n_layers", 1, 3),
-        "layer_size": trial.suggest_int("layer_size", 32, 256),
-        "discount": trial.suggest_float("discount", 0.9, 0.99, step=0.01),
+        "n_layers": trial.suggest_int("n_layers", 2, 3),
+        "layer_size": trial.suggest_categorical("layer_size", [64, 128, 256]),
+        "discount": trial.suggest_float("discount", 0.95, 0.99, step=0.01),
         "learning_rate": trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True),
         "use_baseline": trial.suggest_categorical("use_baseline", [True]),
         "use_reward_to_go": trial.suggest_categorical("use_reward_to_go", [True]),
@@ -174,14 +174,10 @@ def get_hyper_parameters(trial: optuna.Trial):
             "baseline_learning_rate", 1e-4, 1e-2, log=True
         ),
         "baseline_gradient_steps": trial.suggest_categorical(
-            "baseline_gradient_steps", [1, 5, 10, 25, 50]
+            "baseline_gradient_steps", [5, 10, 25, 50]
         ),
-        "gae_lambda": trial.suggest_categorical(
-            "gae_lambda", [0, 0.95, 0.97, 0.98, 0.99, 1]
-        ),
-        "batch_size": trial.suggest_categorical(
-            "batch_size", [1000, 5000, 25000, 50000, 100000]
-        ),
+        "gae_lambda": trial.suggest_categorical("gae_lambda", [0, 0.95, 0.97, 0.99, 1]),
+        "batch_size": trial.suggest_categorical("batch_size", [5000, 25000, 50000]),
         "deterministic_eval": trial.suggest_categorical("deterministic", [False, True]),
     }
     return hyperparams
@@ -199,15 +195,25 @@ def main():
     parser.add_argument(
         "--study_storage", type=str, default="sqlite:///optuna_studies.db"
     )
-    parser.add_argument("--study_sampler", type=str, default="RandomSampler")
-    parser.add_argument("--study_pruner", type=str, default="NopPruner")
+    parser.add_argument("--sampler", type=str, default="TPESampler")
+    parser.add_argument("--pruner", type=str, default="HyperbandPruner")
+    parser.add_argument("--n_startup_trials", type=int, default=5)
+    parser.add_argument("--pruner_min_resource", type=int, default=1)
     parser.add_argument("--n_trials", type=int, default=100)
 
     args = parser.parse_args()
+    sampler_kwargs = {}
+    if args.sampler == "TPESampler":
+        sampler_kwargs["n_startup_trials"] = args.n_startup_trials
+    pruner_kwargs = {}
+    if args.pruner == "HyperbandPruner":
+        pruner_kwargs["min_resource"] = args.pruner_min_resource
+    elif args.pruner == "MedianPruner":
+        pruner_kwargs["n_startup_trials"] = args.n_startup_trials
     study = optuna.load_study(
         study_name=args.study_name,
-        sampler=getattr(optuna.samplers, args.study_sampler)(),
-        pruner=getattr(optuna.pruners, args.study_pruner)(),
+        sampler=getattr(optuna.samplers, args.sampler)(**sampler_kwargs),
+        pruner=getattr(optuna.pruners, args.pruner)(**pruner_kwargs),
         storage=args.study_storage,
     )
     config = vars(args)
