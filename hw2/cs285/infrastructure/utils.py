@@ -1,16 +1,80 @@
 import copy
 from collections import OrderedDict
+from doctest import debug
+from tkinter.tix import IMAGE
 from typing import Dict, List, Tuple
 
 import cv2
 import gym
+import gym.vector
 import numpy as np
 
 from cs285.infrastructure import pytorch_util as ptu
 from cs285.networks.policies import MLPPolicy
 
-############################################
-############################################
+IMAGE_SIZE = 250
+
+
+def sample_trajectories_vectorized(
+    env: gym.vector.VectorEnv,
+    policy: MLPPolicy,
+    steps: int,
+    render: bool = False,
+    deterministic_predict: bool = False,
+):
+    obs = np.zeros(
+        (steps, env.num_envs, *env.single_observation_space.shape), dtype=np.float32
+    )
+    acs = np.zeros(
+        (steps, env.num_envs, *env.single_action_space.shape), dtype=np.float32
+    )
+    rewards = np.zeros((steps, env.num_envs), dtype=np.float32)
+    next_obs = np.zeros(
+        (steps, env.num_envs, *env.single_observation_space.shape), dtype=np.float32
+    )
+    dones = np.zeros((steps, env.num_envs), dtype=np.float32)
+    truncateds = np.zeros((steps, env.num_envs), dtype=np.float32)
+    image_obs = np.zeros(
+        (steps, env.num_envs, IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8
+    )
+    ob = env.reset()
+    for step in range(steps):
+        # render an image
+        if render:
+            if hasattr(env, "sim"):
+                img = env.sim.render(camera_name="track", height=500, width=500)[::-1]
+            else:
+                img = env.render(mode="single_rgb_array")
+            image_obs[step] = cv2.resize(
+                img, dsize=(IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_CUBIC
+            )
+
+        ac: np.ndarray = policy.get_action(ob, deterministic=deterministic_predict)
+
+        next_ob, rew, done, info = env.step(ac)
+
+        # record result of taking that action
+        obs[step] = ob
+        acs[step] = ac
+        rewards[step] = rew
+        next_obs[step] = next_ob
+        dones[step] = done
+        for i in range(env.num_envs):
+            truncateds[step][i] = info[i].get("TimeLimit.truncated", False)
+
+        ob = next_ob  # jump to next timestep
+
+        # end the rollout if the rollout ended
+
+    return {
+        "observations": obs,
+        "image_obs": image_obs,
+        "rewards": rewards,
+        "actions": acs,
+        "next_observations": next_obs,
+        "dones": dones,
+        "truncateds": truncateds,
+    }
 
 
 def sample_trajectory(
@@ -163,3 +227,8 @@ class AttrDict(dict):
             return self[item]
         except KeyError:
             raise AttributeError(f"'AttrDict' object has no attribute '{item}'")
+
+
+if __name__ == "__main__":
+    env = gym.make("Humanoid-v4", render_mode=None)
+    debug_sample_trajectory(env)
