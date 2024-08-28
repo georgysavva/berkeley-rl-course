@@ -1,8 +1,10 @@
 import functools
 import json
 import time
+from os import rename
 
 import gym
+import gym.vector
 import numpy as np
 import optuna
 import torch
@@ -14,6 +16,17 @@ from cs285.infrastructure import utils
 from cs285.infrastructure.logger import prepare_trajs_as_videos
 
 MAX_NVIDEO = 2
+
+
+def make_env(env_id, seed):
+    def thunk():
+        env = gym.make(env_id, render_mode=None)
+        env.seed(seed)
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+        return env
+
+    return thunk
 
 
 def run_training_loop(config, training_callback):
@@ -34,9 +47,11 @@ def run_training_loop(config, training_callback):
     ptu.init_gpu(use_gpu=True, gpu_id=config.which_gpu)
 
     # make the gym environment
-    env = gym.make(config.env_name, render_mode=None)
-    discrete = isinstance(env.action_space, gym.spaces.Discrete)
+    env = gym.vector.AsyncVectorEnv(
+        [make_env(config.env_name, config.seed + i) for i in range(config.num_envs)]
+    )
 
+    discrete = isinstance(env.single_action_space, gym.spaces.Discrete)
     # # add action noise, if needed
     # if args.action_noise_std > 0:
     #     assert not discrete, f"Cannot use --action_noise_std for discrete environment {args.env_name}"
@@ -45,8 +60,8 @@ def run_training_loop(config, training_callback):
     max_ep_len = config.ep_len or env.spec.max_episode_steps
     assert max_ep_len is not None, "env must have max episode length"
     print(f"Will use a maximum of {max_ep_len} steps")
-    ob_dim = env.observation_space.shape[0]
-    ac_dim = env.action_space.n if discrete else env.action_space.shape[0]
+    ob_dim = env.single_observation_space.shape[0]
+    ac_dim = env.single_action_space.n if discrete else env.single_action_space.shape[0]
 
     # simulation timestep, will be used for video saving
     if hasattr(env, "model"):
@@ -74,36 +89,41 @@ def run_training_loop(config, training_callback):
     total_envsteps = 0
     start_time = time.time()
     eval_reward = 0.0
+    steps_in_batch = config.batch_size / config.num_envs
+    assert (
+        config.batch_size % config.num_envs == 0
+    ), "Batch size must be divisible by num_envs"
+    steps_in_eval_batch = config.eval_batch_size / config.num_envs
+    assert (
+        config.eval_batch_size % config.num_envs == 0
+    ), "Eval batch size must be divisible by num_envs"
     for itr in range(config.n_iter):
         print(f"\n********** Iteration {itr} ************")
         # sample `args.batch_size` transitions using utils.sample_trajectories
         # make sure to use `max_ep_len`
-        trajs, envsteps_this_batch = utils.sample_trajectories(
-            env, agent.actor, config.batch_size, max_ep_len
-        )
-        total_envsteps += envsteps_this_batch
+        trajs = utils.sample_trajectories_vectorized(env, agent.actor, steps_in_batch)
+        total_envsteps += steps_in_batch * config.num_envs
 
         # trajs should be a list of dictionaries of NumPy arrays, where each dictionary corresponds to a trajectory.
         # this line converts this into a single dictionary of lists of NumPy arrays.
-        trajs_dict = {k: [traj[k] for traj in trajs] for k in trajs[0]}
 
         # train the agent using the sampled trajectories and the agent's update function
         train_info: dict = agent.update(
-            trajs_dict["observation"],
-            trajs_dict["action"],
-            trajs_dict["reward"],
-            trajs_dict["terminal"],
+            trajs["observations"],
+            trajs["actions"],
+            trajs["rewards"],
+            trajs["value_bootstraps"],
+            trajs["dones"],
         )
 
         if itr % config.scalar_log_freq == 0:
             # save eval metrics
             print("\nCollecting data for eval...")
             trajs_groups = [("Train", trajs)]
-            eval_trajs, _ = utils.sample_trajectories(
+            eval_trajs, _ = utils.sample_trajectories_vectorized(
                 env,
                 agent.actor,
-                config.eval_batch_size,
-                max_ep_len,
+                steps_in_eval_batch,
                 deterministic_predict=config.deterministic_eval,
             )
             trajs_groups.append(("Eval", eval_trajs))
@@ -126,7 +146,7 @@ def run_training_loop(config, training_callback):
 
         if config.video_log_freq != -1 and itr % config.video_log_freq == 0:
             print("\nCollecting video rollouts...")
-            eval_video_trajs = utils.sample_n_trajectories(
+            eval_video_trajs = utils.sample_trajectories_vectorized(
                 env,
                 agent.actor,
                 MAX_NVIDEO,

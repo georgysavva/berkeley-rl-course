@@ -50,10 +50,11 @@ class PGAgent(nn.Module):
 
     def update(
         self,
-        obs: Sequence[np.ndarray],
-        actions: Sequence[np.ndarray],
-        rewards: Sequence[np.ndarray],
-        terminals: Sequence[np.ndarray],
+        obs: np.ndarray,
+        actions: np.ndarray,
+        rewards: np.ndarray,
+        value_bootstraps: np.ndarray,
+        dones: np.ndarray,
     ) -> dict:
         """The train step for PG involves updating its actor using the given observations/actions and the calculated
         qvals/advantages that come from the seen rewards.
@@ -61,24 +62,20 @@ class PGAgent(nn.Module):
         Each input is a list of NumPy arrays, where each array corresponds to a single trajectory. The batch size is the
         total number of samples across all trajectories (i.e. the sum of the lengths of all the arrays).
         """
+        assert self.critic is not None, "Critic must be used to estimate advantages"
 
-        # step 1: calculate Q values of each (s_t, a_t) point, using rewards (r_0, ..., r_t, ..., r_T)
-        q_values: Sequence[np.ndarray] = self._calculate_q_vals(rewards)
-
-        # flatten the lists of arrays into single arrays, so that the rest of the code can be written in a vectorized
-        # way. obs, actions, rewards, terminals, and q_values should all be arrays with a leading dimension of `batch_size`
-        # beyond this point.
-
-        obs = np.concatenate(obs)
-        actions = np.concatenate(actions)
-        rewards = np.concatenate(rewards)
-        terminals = np.concatenate(terminals)
-        q_values = np.concatenate(q_values)
         # step 2: calculate advantages from Q values
+        values = self.critic.predict(obs)
         advantages: np.ndarray = self._estimate_advantage(
-            obs, rewards, q_values, terminals
+            rewards, values, value_bootstraps, dones
         )
+        returns = values + advantages
 
+        # normalize the advantages to have a mean of zero and a standard deviation of one within the batch
+        if self.normalize_advantages:
+            mean = np.mean(advantages)
+            std = np.std(advantages)
+            advantages = (advantages - mean) / (std + 1e-12)
         # step 3: use all datapoints (s_t, a_t, adv_t) to update the PG actor/policy
         # update the PG actor/policy network once using the advantages
 
@@ -90,7 +87,7 @@ class PGAgent(nn.Module):
             critic_info: dict = {}
             assert self.baseline_gradient_steps is not None
             for _ in range(self.baseline_gradient_steps):
-                critic_step_info = self.critic.update(obs, q_values)
+                critic_step_info = self.critic.update(obs, returns)
                 for key, value in critic_step_info.items():
                     critic_info[key] = critic_info.get(key, 0) + value
             for key in critic_info:
@@ -118,59 +115,43 @@ class PGAgent(nn.Module):
 
     def _estimate_advantage(
         self,
-        obs: np.ndarray,
         rewards: np.ndarray,
-        q_values: np.ndarray,
-        terminals: np.ndarray,
+        values: np.ndarray,
+        value_bootstraps: np.ndarray,
+        dones: np.ndarray,
     ) -> np.ndarray:
         """Computes advantages by (possibly) subtracting a value baseline from the estimated Q-values.
 
         Operates on flat 1D NumPy arrays.
         """
-        if self.critic is None:
-            # if no baseline, then what are the advantages?
-            advantages = q_values
-        else:
-            # run the critic and use it as a baseline
-            values = self.critic.predict(obs)
-            assert values.shape == q_values.shape
+        assert self.gae_lambda is not None, "GAE lambda must be set"
+        # run the critic and use it as a baseline
+        # implement GAE
+        batch_size = values.shape[0]
+        # HINT: append a dummy T+1 value for simpler recursive calculation
 
-            if self.gae_lambda is None:
-                # if using a baseline, but not GAE, what are the advantages?
-                advantages = q_values - values
+        advantages = np.zeros(batch_size)
+        last_advantage = 0
+        for i in reversed(range(batch_size)):
+            # recursively compute advantage estimates starting from timestep T.
+            # HINT: use terminals to handle edge cases. terminals[i] is 1 if the state is the last in its
+            # trajectory, and 0 otherwise.
+            if i == batch_size - 1:
+                next_values = 0
             else:
-                # implement GAE
-                batch_size = obs.shape[0]
+                next_values = values[i + 1]
 
-                # HINT: append a dummy T+1 value for simpler recursive calculation
-                values = np.append(values, [0])
-                advantages = np.zeros(batch_size + 1)
+            delta = (
+                rewards[i]
+                + self.gamma * value_bootstraps[i]
+                + self.gamma * next_values * (1 - dones[i])
+                - values[i]
+            )
 
-                for i in reversed(range(batch_size)):
-                    # recursively compute advantage estimates starting from timestep T.
-                    # HINT: use terminals to handle edge cases. terminals[i] is 1 if the state is the last in its
-                    # trajectory, and 0 otherwise.
-                    delta = (
-                        rewards[i]
-                        + self.gamma * values[i + 1] * (1 - terminals[i])
-                        - values[i]
-                    )
-                    advantages[i] = (
-                        self.gamma
-                        * self.gae_lambda
-                        * advantages[i + 1]
-                        * (1 - terminals[i])
-                        + delta
-                    )
-
-                # remove dummy advantage
-                advantages = advantages[:-1]
-
-        # normalize the advantages to have a mean of zero and a standard deviation of one within the batch
-        if self.normalize_advantages:
-            mean = np.mean(advantages)
-            std = np.std(advantages)
-            advantages = (advantages - mean) / (std + 1e-12)
+            last_advantage = (
+                self.gamma * self.gae_lambda * last_advantage * (1 - dones[i]) + delta
+            )
+            advantages[i] = last_advantage
 
         return advantages
 

@@ -10,6 +10,7 @@ import gym.vector
 import numpy as np
 
 from cs285.infrastructure import pytorch_util as ptu
+from cs285.networks.critics import ValueCritic
 from cs285.networks.policies import MLPPolicy
 
 IMAGE_SIZE = 250
@@ -18,6 +19,7 @@ IMAGE_SIZE = 250
 def sample_trajectories_vectorized(
     env: gym.vector.VectorEnv,
     policy: MLPPolicy,
+    critic: ValueCritic,
     steps: int,
     render: bool = False,
     deterministic_predict: bool = False,
@@ -29,11 +31,8 @@ def sample_trajectories_vectorized(
         (steps, env.num_envs, *env.single_action_space.shape), dtype=np.float32
     )
     rewards = np.zeros((steps, env.num_envs), dtype=np.float32)
-    next_obs = np.zeros(
-        (steps, env.num_envs, *env.single_observation_space.shape), dtype=np.float32
-    )
+    value_bootstraps = np.zeros((steps, env.num_envs), dtype=np.float32)
     dones = np.zeros((steps, env.num_envs), dtype=np.float32)
-    truncateds = np.zeros((steps, env.num_envs), dtype=np.float32)
     image_obs = np.zeros(
         (steps, env.num_envs, IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8
     )
@@ -57,10 +56,15 @@ def sample_trajectories_vectorized(
         obs[step] = ob
         acs[step] = ac
         rewards[step] = rew
-        next_obs[step] = next_ob
         dones[step] = done
         for i in range(env.num_envs):
-            truncateds[step][i] = info[i].get("TimeLimit.truncated", False)
+            truncated = done[i] and info[i].get("TimeLimit.truncated", False)
+            if step < steps - 1:
+                if truncated:
+                    value_bootstraps[step, i] = critic.predict(next_ob[i])
+            else:
+                if truncated or not done[i]:
+                    value_bootstraps[step, i] = critic.predict(next_ob[i])
 
         ob = next_ob  # jump to next timestep
 
@@ -69,11 +73,10 @@ def sample_trajectories_vectorized(
     return {
         "observations": obs,
         "image_obs": image_obs,
-        "rewards": rewards,
         "actions": acs,
-        "next_observations": next_obs,
+        "rewards": rewards,
+        "value_bootstraps": value_bootstraps,
         "dones": dones,
-        "truncateds": truncateds,
     }
 
 
