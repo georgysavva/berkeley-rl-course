@@ -1,5 +1,6 @@
 from typing import Optional, Sequence
 
+import einops
 import numpy as np
 import torch
 from torch import nn
@@ -10,6 +11,7 @@ from cs285.networks.policies import MLPPolicyPG
 
 
 class PGAgent(nn.Module):
+
     def __init__(
         self,
         ob_dim: int,
@@ -21,6 +23,7 @@ class PGAgent(nn.Module):
         learning_rate: float,
         use_baseline: bool,
         use_reward_to_go: bool,
+        value_td_lambda: float,
         baseline_learning_rate: Optional[float],
         baseline_gradient_steps: Optional[int],
         gae_lambda: Optional[float],
@@ -46,6 +49,7 @@ class PGAgent(nn.Module):
         self.gamma = gamma
         self.use_reward_to_go = use_reward_to_go
         self.gae_lambda = gae_lambda
+        self.value_td_lambda = value_td_lambda
         self.normalize_advantages = normalize_advantages
 
     def update(
@@ -67,10 +71,17 @@ class PGAgent(nn.Module):
         # step 2: calculate advantages from Q values
         values = self.critic.predict(obs)
         advantages: np.ndarray = self._estimate_advantage(
-            rewards, values, value_bootstraps, dones
+            self.gae_lambda, rewards, values, value_bootstraps, dones
         )
-        returns = values + advantages
+        advantages_for_returns: np.ndarray = self._estimate_advantage(
+            self.value_td_lambda, rewards, values, value_bootstraps, dones
+        )
+        returns = values + advantages_for_returns
 
+        advantages = einops.rearrange(advantages, "t env -> (t env)")
+        actions = einops.rearrange(actions, "t env ac -> (t env) ac")
+        obs = einops.rearrange(obs, "t env ob -> (t env) ob")
+        returns = einops.rearrange(returns, "t env -> (t env)")
         # normalize the advantages to have a mean of zero and a standard deviation of one within the batch
         if self.normalize_advantages:
             mean = np.mean(advantages)
@@ -115,6 +126,7 @@ class PGAgent(nn.Module):
 
     def _estimate_advantage(
         self,
+        td_lambda: float,
         rewards: np.ndarray,
         values: np.ndarray,
         value_bootstraps: np.ndarray,
@@ -124,14 +136,13 @@ class PGAgent(nn.Module):
 
         Operates on flat 1D NumPy arrays.
         """
-        assert self.gae_lambda is not None, "GAE lambda must be set"
         # run the critic and use it as a baseline
         # implement GAE
         batch_size = values.shape[0]
         # HINT: append a dummy T+1 value for simpler recursive calculation
 
-        advantages = np.zeros(batch_size)
-        last_advantage = 0
+        advantages = np.zeros_like(values)
+        last_advantage = np.zeros(values.shape[-1])
         for i in reversed(range(batch_size)):
             # recursively compute advantage estimates starting from timestep T.
             # HINT: use terminals to handle edge cases. terminals[i] is 1 if the state is the last in its
@@ -149,7 +160,7 @@ class PGAgent(nn.Module):
             )
 
             last_advantage = (
-                self.gamma * self.gae_lambda * last_advantage * (1 - dones[i]) + delta
+                self.gamma * td_lambda * last_advantage * (1 - dones[i]) + delta
             )
             advantages[i] = last_advantage
 

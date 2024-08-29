@@ -1,7 +1,4 @@
-import copy
 from collections import OrderedDict
-from doctest import debug
-from tkinter.tix import IMAGE
 from typing import Dict, List, Tuple
 
 import cv2
@@ -21,7 +18,6 @@ def sample_trajectories_vectorized(
     policy: MLPPolicy,
     critic: ValueCritic,
     steps: int,
-    render: bool = False,
     deterministic_predict: bool = False,
 ):
     obs = np.zeros(
@@ -33,20 +29,8 @@ def sample_trajectories_vectorized(
     rewards = np.zeros((steps, env.num_envs), dtype=np.float32)
     value_bootstraps = np.zeros((steps, env.num_envs), dtype=np.float32)
     dones = np.zeros((steps, env.num_envs), dtype=np.float32)
-    image_obs = np.zeros(
-        (steps, env.num_envs, IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8
-    )
     ob = env.reset()
     for step in range(steps):
-        # render an image
-        if render:
-            if hasattr(env, "sim"):
-                img = env.sim.render(camera_name="track", height=500, width=500)[::-1]
-            else:
-                img = env.render(mode="single_rgb_array")
-            image_obs[step] = cv2.resize(
-                img, dsize=(IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_CUBIC
-            )
 
         ac: np.ndarray = policy.get_action(ob, deterministic=deterministic_predict)
 
@@ -72,12 +56,53 @@ def sample_trajectories_vectorized(
 
     return {
         "observations": obs,
-        "image_obs": image_obs,
         "actions": acs,
         "rewards": rewards,
         "value_bootstraps": value_bootstraps,
         "dones": dones,
     }
+
+
+def sample_n_trajectories_vectorized_for_eval(
+    env: gym.vector.VectorEnv,
+    policy: MLPPolicy,
+    ntraj: int,
+    deterministic_predict: bool = False,
+):
+    trajs = [
+        [{"image_obs": [], "rewards": []} for _ in range(ntraj)]
+        for _ in range(env.num_envs)
+    ]
+    env_counts = np.zeros(env.num_envs, dtype=np.int32)
+    ob = env.reset()
+    while np.any(env_counts < ntraj):
+        # render an image
+        if hasattr(env, "sim"):
+            img = env.sim.render(camera_name="track", height=500, width=500)[::-1]
+        else:
+            img = env.render(mode="single_rgb_array")
+
+        ac: np.ndarray = policy.get_action(ob, deterministic=deterministic_predict)
+
+        next_ob, rew, done, _ = env.step(ac)
+
+        for i in range(env.num_envs):
+            if env_counts[i] < ntraj:
+                trajs[i][env_counts[i]]["rewards"].append(rew[i])
+                trajs[i][env_counts[i]]["image_obs"].append(
+                    cv2.resize(
+                        img,
+                        dsize=(IMAGE_SIZE, IMAGE_SIZE),
+                        interpolation=cv2.INTER_CUBIC,
+                    )
+                )
+                env_counts[i] += done[i]
+
+        ob = next_ob  # jump to next timestep
+
+        # end the rollout if the rollout ended
+    trajs = [traj for env_trajs in trajs for traj in env_trajs]
+    return trajs
 
 
 def sample_trajectory(
@@ -174,21 +199,21 @@ def sample_n_trajectories(
     return trajs
 
 
-def compute_metrics(trajs_groups):
+def compute_metrics(eval_trajs):
     """Compute metrics for logging."""
 
     # returns, for logging
 
     # decide what to log
     logs = OrderedDict()
-    for name, trajs in trajs_groups:
-        returns = [traj["reward"].sum() for traj in trajs]
-        ep_lens = [len(traj["reward"]) for traj in trajs]
-        logs[name + "/AverageReturn"] = np.mean(returns)
-        logs[name + "/StdReturn"] = np.std(returns)
-        logs[name + "/MaxReturn"] = np.max(returns)
-        logs[name + "/MinReturn"] = np.min(returns)
-        logs[name + "/AverageEpLen"] = np.mean(ep_lens)
+    returns = [traj["reward"].sum() for traj in eval_trajs]
+    ep_lens = [len(traj["reward"]) for traj in eval_trajs]
+    name = "Eval"
+    logs[name + "/AverageReturn"] = np.mean(returns)
+    logs[name + "/StdReturn"] = np.std(returns)
+    logs[name + "/MaxReturn"] = np.max(returns)
+    logs[name + "/MinReturn"] = np.min(returns)
+    logs[name + "/AverageEpLen"] = np.mean(ep_lens)
 
     return logs
 

@@ -81,7 +81,8 @@ def run_training_loop(config, training_callback):
         use_baseline=config.use_baseline,
         use_reward_to_go=config.use_reward_to_go,
         normalize_advantages=config.normalize_advantages,
-        baseline_learning_rate=config.baseline_learning_rate,
+        value_td_lambda=config.value_td_lambda,
+        baseline_learning_rate=config.learning_rate,
         baseline_gradient_steps=config.baseline_gradient_steps,
         gae_lambda=config.gae_lambda,
     )
@@ -89,19 +90,26 @@ def run_training_loop(config, training_callback):
     total_envsteps = 0
     start_time = time.time()
     eval_reward = 0.0
-    steps_in_batch = config.batch_size / config.num_envs
     assert (
         config.batch_size % config.num_envs == 0
     ), "Batch size must be divisible by num_envs"
-    steps_in_eval_batch = config.eval_batch_size / config.num_envs
+    steps_in_batch = config.batch_size / config.num_envs
+
     assert (
-        config.eval_batch_size % config.num_envs == 0
-    ), "Eval batch size must be divisible by num_envs"
+        config.eval_episodes % config.num_envs == 0
+    ), "Eval episodes must be divisible by num_envs"
+    eval_episodes_per_env = config.eval_episodes / config.num_envs
+    assert (
+        config.video_log_freq % config.scalar_log_freq == 0
+    ), "Video log freq must be divisible by scalar log freq"
+    assert agent.critic is not None, "Critic must be used to estimate advantages"
     for itr in range(config.n_iter):
         print(f"\n********** Iteration {itr} ************")
         # sample `args.batch_size` transitions using utils.sample_trajectories
         # make sure to use `max_ep_len`
-        trajs = utils.sample_trajectories_vectorized(env, agent.actor, steps_in_batch)
+        trajs = utils.sample_trajectories_vectorized(
+            env, agent.actor, agent.critic, steps_in_batch
+        )
         total_envsteps += steps_in_batch * config.num_envs
 
         # trajs should be a list of dictionaries of NumPy arrays, where each dictionary corresponds to a trajectory.
@@ -119,16 +127,14 @@ def run_training_loop(config, training_callback):
         if itr % config.scalar_log_freq == 0:
             # save eval metrics
             print("\nCollecting data for eval...")
-            trajs_groups = [("Train", trajs)]
-            eval_trajs, _ = utils.sample_trajectories_vectorized(
+            eval_trajs = utils.sample_n_trajectories_vectorized_for_eval(
                 env,
                 agent.actor,
-                steps_in_eval_batch,
+                eval_episodes_per_env,
                 deterministic_predict=config.deterministic_eval,
             )
-            trajs_groups.append(("Eval", eval_trajs))
             eval_reward = utils.compute_average_return(eval_trajs)
-            logs = utils.compute_metrics(trajs_groups)
+            logs = utils.compute_metrics(eval_trajs)
             # compute additional metrics
             logs.update(train_info)
             logs["Train_EnvstepsSoFar"] = total_envsteps
@@ -144,19 +150,11 @@ def run_training_loop(config, training_callback):
             wandb.log(logs, step=itr)
             print("Done logging...\n\n")
 
-        if config.video_log_freq != -1 and itr % config.video_log_freq == 0:
-            print("\nCollecting video rollouts...")
-            eval_video_trajs = utils.sample_trajectories_vectorized(
-                env,
-                agent.actor,
-                MAX_NVIDEO,
-                max_ep_len,
-                render=True,
-                deterministic_predict=config.deterministic_eval,
-            )
-            videos = prepare_trajs_as_videos(eval_video_trajs, MAX_NVIDEO)
-            wandb.log({"EvalRollouts": wandb.Video(videos, fps=fps)}, step=itr)
-            training_callback(itr, eval_reward)
+            if config.video_log_freq != -1 and itr % config.video_log_freq == 0:
+                print("\nCollecting video rollouts...")
+                videos = prepare_trajs_as_videos(eval_trajs, MAX_NVIDEO)
+                wandb.log({"EvalRollouts": wandb.Video(videos, fps=fps)}, step=itr)
+        training_callback(itr, eval_reward)
 
     return eval_reward
 
@@ -184,25 +182,32 @@ def objective(config, trial: optuna.Trial):
 
 
 def get_hyper_parameters(trial: optuna.Trial):
+    n_layers = trial.suggest_int("n_layers", 2, 3)
+    if n_layers == 2:
+        layer_size = trial.suggest_categorical("layer_size", [64])
+    else:
+        layer_size = trial.suggest_categorical("layer_size", [128, 256])
     hyperparams = {
-        "n_layers": trial.suggest_int("n_layers", 2, 3),
-        "layer_size": trial.suggest_categorical("layer_size", [64, 128, 256]),
+        "n_layers": n_layers,
+        "layer_size": layer_size,
         "discount": trial.suggest_float("discount", 0.95, 0.99, step=0.02),
-        "learning_rate": trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True),
+        "learning_rate": trial.suggest_categorical("learning_rate", [1e-3, 1e-4]),
         "use_baseline": trial.suggest_categorical("use_baseline", [True]),
         "use_reward_to_go": trial.suggest_categorical("use_reward_to_go", [True]),
         "normalize_advantages": trial.suggest_categorical(
             "normalize_advantages", [True]
         ),
-        "baseline_learning_rate": trial.suggest_float(
-            "baseline_learning_rate", 1e-4, 1e-2, log=True
-        ),
+        # "baseline_learning_rate": trial.suggest_float(
+        #     "baseline_learning_rate", 1e-4, 1e-2, log=True
+        # ),
         "baseline_gradient_steps": trial.suggest_categorical(
-            "baseline_gradient_steps", [5, 10, 25, 50]
+            "baseline_gradient_steps", [5, 25, 50]
         ),
         "gae_lambda": trial.suggest_categorical("gae_lambda", [0, 0.95, 0.97, 0.99, 1]),
-        "batch_size": trial.suggest_categorical("batch_size", [5000, 25000, 50000]),
-        "deterministic_eval": trial.suggest_categorical("deterministic", [False, True]),
+        "value_td_lambda": trial.suggest_categorical(
+            "gae_lambda", [0, 0.95, 0.97, 0.99, 1]
+        ),
+        "batch_size": trial.suggest_categorical("batch_size", [25000, 50000]),
     }
     return hyperparams
 

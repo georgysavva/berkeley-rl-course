@@ -10,9 +10,11 @@ def main():
 
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--n_iter", "-n", type=int, default=1000)
+    parser.add_argument("--eval_episodes", "-ee", type=int, default=8)
+    parser.add_argument("--envs_num", "-en", type=int, default=8)
     parser.add_argument(
-        "--eval_batch_size", "-eb", type=int, default=2000
-    )  # steps collected per eval iteration
+        "--deterministic_eval", "-de", action="store_true", default=True
+    )
     parser.add_argument(
         "--ep_len", type=int
     )  # students shouldn't change this away from env's default
@@ -32,8 +34,10 @@ def main():
     )
     study.set_user_attr("env_name", args.env_name)
     study.set_user_attr("n_iter", args.n_iter)
-    study.set_user_attr("eval_batch_size", args.eval_batch_size)
+    study.set_user_attr("eval_batch_size", args.eval_episodes)
+    study.set_user_attr("deterministic_eval", args.deterministic_eval)
     study.set_user_attr("ep_len", args.ep_len)
+    study.set_user_attr("envs_num", args.envs_num)
     study.set_user_attr("video_log_freq", args.video_log_freq)
     study.set_user_attr("scalar_log_freq", args.scalar_log_freq)
     study.set_user_attr("seed", args.seed)
