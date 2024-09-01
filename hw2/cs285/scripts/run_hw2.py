@@ -1,7 +1,7 @@
 import functools
 import json
+import os
 import time
-from os import rename
 
 import gym
 import gym.vector
@@ -29,13 +29,18 @@ def make_env(env_id, seed):
     return thunk
 
 
-def run_training_loop(config, training_callback):
+def run_training_loop(config: utils.AttrDict, training_callback=None):
     wandb_project = config.pop("wandb_project")
+    wandb_tags = [config.env_name]
+    study_name = config.get("study_name", None)
+    if study_name is not None:
+        wandb_tags.append(study_name)
     wandb.init(
+        name=config.get("exp_name", None),
         project=wandb_project,
         config=config,
-        group=config.study_name,
-        tags=[config.env_name, config.study_name],
+        group=study_name,
+        tags=wandb_tags,
         reinit=True,
     )
     print("Run training with config:")
@@ -159,20 +164,18 @@ def run_training_loop(config, training_callback):
                 )
                 videos = prepare_trajs_as_videos(video_trajs, MAX_NVIDEO)
                 wandb.log({"EvalRollouts": wandb.Video(videos, fps=fps)}, step=itr)
-        training_callback(itr, eval_reward)
+        if training_callback is not None:
+            training_callback(itr, eval_reward)
 
     return eval_reward
 
 
-def objective(config, trial: optuna.Trial):
+def objective(config: utils.AttrDict, trial: optuna.Trial):
     hyper_params = get_hyper_parameters(trial)
-    config = {
-        **config,
-        **hyper_params,
-        **trial.study.user_attrs,
-        "trial_number": trial.number,
-    }
-    config = utils.AttrDict(config)
+
+    config.update(hyper_params)
+    config.update(trial.study.user_attrs)
+    config["trial_number"] = trial.number
 
     def training_callback(iteration, eval_return):
         trial.report(eval_return, step=iteration)
@@ -225,11 +228,11 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--study_name", type=str, required=True)
 
     parser.add_argument("--which_gpu", "-gpu_id", default=3)
     parser.add_argument("--wandb_project", type=str, default="berkeleyrl-hw2")
 
+    parser.add_argument("--study_name", type=str)
     parser.add_argument(
         "--study_storage",
         type=str,
@@ -241,25 +244,38 @@ def main():
     parser.add_argument("--pruner_min_resource", type=int, default=1)
     parser.add_argument("--n_trials", type=int, default=100)
 
-    args = parser.parse_args()
-    sampler_kwargs = {}
-    if args.sampler == "TPESampler":
-        sampler_kwargs["n_startup_trials"] = args.n_startup_trials
-    pruner_kwargs = {}
-    if args.pruner == "HyperbandPruner":
-        pruner_kwargs["min_resource"] = args.pruner_min_resource
-    elif args.pruner == "MedianPruner":
-        pruner_kwargs["n_startup_trials"] = args.n_startup_trials
-    study = optuna.load_study(
-        study_name=args.study_name,
-        sampler=getattr(optuna.samplers, args.sampler)(**sampler_kwargs),
-        pruner=getattr(optuna.pruners, args.pruner)(**pruner_kwargs),
-        storage=args.study_storage,
-    )
-    config = vars(args)
-    config.pop("study_storage")
+    parser.add_argument("--exp_config", type=str)
 
-    study.optimize(functools.partial(objective, config), n_trials=args.n_trials)  # type: ignore
+    args = parser.parse_args()
+    assert (
+        args.exp_config or args.study_name
+    ), "Either exp_config or study_name must be provided"
+    config = vars(args)
+    config = utils.AttrDict(config)
+    if args.study_name:
+        sampler_kwargs = {}
+        if args.sampler == "TPESampler":
+            sampler_kwargs["n_startup_trials"] = args.n_startup_trials
+        pruner_kwargs = {}
+        if args.pruner == "HyperbandPruner":
+            pruner_kwargs["min_resource"] = args.pruner_min_resource
+        elif args.pruner == "MedianPruner":
+            pruner_kwargs["n_startup_trials"] = args.n_startup_trials
+        study = optuna.load_study(
+            study_name=args.study_name,
+            sampler=getattr(optuna.samplers, args.sampler)(**sampler_kwargs),
+            pruner=getattr(optuna.pruners, args.pruner)(**pruner_kwargs),
+            storage=args.study_storage,
+        )
+        config.pop("study_storage")
+
+        study.optimize(functools.partial(objective, config), n_trials=args.n_trials)  # type: ignore
+    else:
+        with open(args.exp_config) as f:
+            exp_config = json.load(f)
+        config.update(exp_config)
+        config["exp_name"] = os.path.basename(args.exp_config).replace(".json", "")
+        run_training_loop(config)
 
 
 if __name__ == "__main__":
