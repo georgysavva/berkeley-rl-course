@@ -57,7 +57,7 @@ def run_training_loop(config, training_callback):
     #     assert not discrete, f"Cannot use --action_noise_std for discrete environment {args.env_name}"
     #     env = ActionNoiseWrapper(env, args.seed, args.action_noise_std)
 
-    max_ep_len = config.ep_len or env.spec.max_episode_steps
+    max_ep_len = config.ep_len or env.call("spec")[0].max_episode_steps
     assert max_ep_len is not None, "env must have max episode length"
     print(f"Will use a maximum of {max_ep_len} steps")
     ob_dim = env.single_observation_space.shape[0]
@@ -67,7 +67,7 @@ def run_training_loop(config, training_callback):
     if hasattr(env, "model"):
         fps = 1 / env.model.opt.timestep
     else:
-        fps = env.env.metadata["render_fps"]
+        fps = env.metadata["render_fps"]
 
     # initialize agent
     agent = PGAgent(
@@ -93,12 +93,12 @@ def run_training_loop(config, training_callback):
     assert (
         config.batch_size % config.num_envs == 0
     ), "Batch size must be divisible by num_envs"
-    steps_in_batch = config.batch_size / config.num_envs
+    steps_in_batch = config.batch_size // config.num_envs
 
     assert (
         config.eval_episodes % config.num_envs == 0
     ), "Eval episodes must be divisible by num_envs"
-    eval_episodes_per_env = config.eval_episodes / config.num_envs
+    eval_episodes_per_env = config.eval_episodes // config.num_envs
     assert (
         config.video_log_freq % config.scalar_log_freq == 0
     ), "Video log freq must be divisible by scalar log freq"
@@ -182,14 +182,20 @@ def objective(config, trial: optuna.Trial):
 
 
 def get_hyper_parameters(trial: optuna.Trial):
-    n_layers = trial.suggest_int("n_layers", 2, 3)
-    if n_layers == 2:
-        layer_size = trial.suggest_categorical("layer_size", [64])
+    size_category = trial.suggest_categorical("size", ["small", "medium", "large"])
+    if size_category == "small":
+        layer_size = 64
+        n_layers = 2
+    elif size_category == "medium":
+        layer_size = 128
+        n_layers = 3
     else:
-        layer_size = trial.suggest_categorical("layer_size", [128, 256])
+        layer_size = 256
+        n_layers = 3
     hyperparams = {
         "n_layers": n_layers,
         "layer_size": layer_size,
+        "size_category": size_category,
         "discount": trial.suggest_float("discount", 0.95, 0.99, step=0.02),
         "learning_rate": trial.suggest_categorical("learning_rate", [1e-3, 1e-4]),
         "use_baseline": trial.suggest_categorical("use_baseline", [True]),
@@ -218,7 +224,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--study_name", type=str, required=True)
 
-    parser.add_argument("--which_gpu", "-gpu_id", default=0)
+    parser.add_argument("--which_gpu", "-gpu_id", default=3)
     parser.add_argument("--wandb_project", type=str, default="berkeleyrl-hw2")
 
     parser.add_argument(

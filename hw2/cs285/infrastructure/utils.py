@@ -42,7 +42,11 @@ def sample_trajectories_vectorized(
         rewards[step] = rew
         dones[step] = done
         for i in range(env.num_envs):
-            truncated = done[i] and info[i].get("TimeLimit.truncated", False)
+            truncated = (
+                done[i]
+                and "TimeLimit.truncated" in info
+                and info["TimeLimit.truncated"][i]
+            )
             if step < steps - 1:
                 if truncated:
                     value_bootstraps[step, i] = critic.predict(next_ob[i])
@@ -80,7 +84,7 @@ def sample_n_trajectories_vectorized_for_eval(
         if hasattr(env, "sim"):
             img = env.sim.render(camera_name="track", height=500, width=500)[::-1]
         else:
-            img = env.render(mode="single_rgb_array")
+            img = env.call("render", mode="single_rgb_array")
 
         ac: np.ndarray = policy.get_action(ob, deterministic=deterministic_predict)
 
@@ -91,7 +95,7 @@ def sample_n_trajectories_vectorized_for_eval(
                 trajs[i][env_counts[i]]["rewards"].append(rew[i])
                 trajs[i][env_counts[i]]["image_obs"].append(
                     cv2.resize(
-                        img,
+                        img[i],
                         dsize=(IMAGE_SIZE, IMAGE_SIZE),
                         interpolation=cv2.INTER_CUBIC,
                     )

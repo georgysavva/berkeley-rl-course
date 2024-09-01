@@ -148,7 +148,7 @@ class PGAgent(nn.Module):
             # HINT: use terminals to handle edge cases. terminals[i] is 1 if the state is the last in its
             # trajectory, and 0 otherwise.
             if i == batch_size - 1:
-                next_values = 0
+                next_values = np.zeros_like(values.shape[-1])
             else:
                 next_values = values[i + 1]
 
