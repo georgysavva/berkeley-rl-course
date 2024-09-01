@@ -73,18 +73,10 @@ def sample_n_trajectories_vectorized_for_eval(
     ntraj: int,
     deterministic_predict: bool = False,
 ):
-    trajs = [
-        [{"image_obs": [], "rewards": []} for _ in range(ntraj)]
-        for _ in range(env.num_envs)
-    ]
+    trajs = [[{"reward": []} for _ in range(ntraj)] for _ in range(env.num_envs)]
     env_counts = np.zeros(env.num_envs, dtype=np.int32)
     ob = env.reset()
     while np.any(env_counts < ntraj):
-        # render an image
-        if hasattr(env, "sim"):
-            img = env.sim.render(camera_name="track", height=500, width=500)[::-1]
-        else:
-            img = env.call("render", mode="single_rgb_array")
 
         ac: np.ndarray = policy.get_action(ob, deterministic=deterministic_predict)
 
@@ -92,20 +84,17 @@ def sample_n_trajectories_vectorized_for_eval(
 
         for i in range(env.num_envs):
             if env_counts[i] < ntraj:
-                trajs[i][env_counts[i]]["rewards"].append(rew[i])
-                trajs[i][env_counts[i]]["image_obs"].append(
-                    cv2.resize(
-                        img[i],
-                        dsize=(IMAGE_SIZE, IMAGE_SIZE),
-                        interpolation=cv2.INTER_CUBIC,
-                    )
-                )
+                trajs[i][env_counts[i]]["reward"].append(rew[i])
                 env_counts[i] += done[i]
 
         ob = next_ob  # jump to next timestep
 
         # end the rollout if the rollout ended
-    trajs = [traj for env_trajs in trajs for traj in env_trajs]
+    trajs = [
+        {"reward": np.array(traj["reward"], dtype=np.float32)}
+        for env_trajs in trajs
+        for traj in env_trajs
+    ]
     return trajs
 
 
@@ -228,27 +217,6 @@ def compute_average_return(trajs):
     return np.mean(returns)
 
 
-def convert_listofrollouts(trajs):
-    """
-    Take a list of rollout dictionaries and return separate arrays, where each array is a concatenation of that array
-    from across the rollouts.
-    """
-    observations = np.concatenate([traj["observation"] for traj in trajs])
-    actions = np.concatenate([traj["action"] for traj in trajs])
-    next_observations = np.concatenate([traj["next_observation"] for traj in trajs])
-    terminals = np.concatenate([traj["terminal"] for traj in trajs])
-    concatenated_rewards = np.concatenate([traj["reward"] for traj in trajs])
-    unconcatenated_rewards = [traj["reward"] for traj in trajs]
-    return (
-        observations,
-        actions,
-        next_observations,
-        terminals,
-        concatenated_rewards,
-        unconcatenated_rewards,
-    )
-
-
 def get_traj_length(traj):
     return len(traj["reward"])
 
@@ -259,8 +227,3 @@ class AttrDict(dict):
             return self[item]
         except KeyError:
             raise AttributeError(f"'AttrDict' object has no attribute '{item}'")
-
-
-if __name__ == "__main__":
-    env = gym.make("Humanoid-v4", render_mode=None)
-    debug_sample_trajectory(env)

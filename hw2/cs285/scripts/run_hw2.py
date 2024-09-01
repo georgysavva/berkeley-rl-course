@@ -50,6 +50,7 @@ def run_training_loop(config, training_callback):
     env = gym.vector.AsyncVectorEnv(
         [make_env(config.env_name, config.seed + i) for i in range(config.num_envs)]
     )
+    env_for_recording = make_env(config.env_name, config.seed)()
 
     discrete = isinstance(env.single_action_space, gym.spaces.Discrete)
     # # add action noise, if needed
@@ -139,10 +140,6 @@ def run_training_loop(config, training_callback):
             logs.update(train_info)
             logs["Train_EnvstepsSoFar"] = total_envsteps
             logs["TimeSinceStart"] = time.time() - start_time
-            if itr == 0:
-                logs["Initial_DataCollection_AverageReturn"] = logs[
-                    "Train_AverageReturn"
-                ]
             # perform the logging
 
             for key, value in logs.items():
@@ -152,7 +149,15 @@ def run_training_loop(config, training_callback):
 
             if config.video_log_freq != -1 and itr % config.video_log_freq == 0:
                 print("\nCollecting video rollouts...")
-                videos = prepare_trajs_as_videos(eval_trajs, MAX_NVIDEO)
+                video_trajs = utils.sample_n_trajectories(
+                    env_for_recording,
+                    agent.actor,
+                    MAX_NVIDEO,
+                    max_ep_len,
+                    render=True,
+                    deterministic_predict=config.deterministic_eval,
+                )
+                videos = prepare_trajs_as_videos(video_trajs, MAX_NVIDEO)
                 wandb.log({"EvalRollouts": wandb.Video(videos, fps=fps)}, step=itr)
         training_callback(itr, eval_reward)
 
@@ -196,7 +201,7 @@ def get_hyper_parameters(trial: optuna.Trial):
         "n_layers": n_layers,
         "layer_size": layer_size,
         "size_category": size_category,
-        "discount": trial.suggest_float("discount", 0.95, 0.99, step=0.02),
+        "discount": trial.suggest_float("discount", 0.95, 0.99, step=0.04),
         "learning_rate": trial.suggest_categorical("learning_rate", [1e-3, 1e-4]),
         "use_baseline": trial.suggest_categorical("use_baseline", [True]),
         "use_reward_to_go": trial.suggest_categorical("use_reward_to_go", [True]),
@@ -209,10 +214,8 @@ def get_hyper_parameters(trial: optuna.Trial):
         "baseline_gradient_steps": trial.suggest_categorical(
             "baseline_gradient_steps", [5, 25, 50]
         ),
-        "gae_lambda": trial.suggest_categorical("gae_lambda", [0, 0.95, 0.97, 0.99, 1]),
-        "value_td_lambda": trial.suggest_categorical(
-            "gae_lambda", [0, 0.95, 0.97, 0.99, 1]
-        ),
+        "gae_lambda": trial.suggest_categorical("gae_lambda", [0, 0.97, 1]),
+        "value_td_lambda": trial.suggest_categorical("gae_lambda", [0, 0.97, 1]),
         "batch_size": trial.suggest_categorical("batch_size", [25000, 50000]),
     }
     return hyperparams
@@ -255,6 +258,7 @@ def main():
     )
     config = vars(args)
     config.pop("study_storage")
+
     study.optimize(functools.partial(objective, config), n_trials=args.n_trials)  # type: ignore
 
 
