@@ -218,7 +218,7 @@ def get_hyper_parameters(trial: optuna.Trial):
             "baseline_gradient_steps", [5, 25, 50]
         ),
         "gae_lambda": trial.suggest_categorical("gae_lambda", [0, 0.97, 1]),
-        "value_td_lambda": trial.suggest_categorical("gae_lambda", [0, 0.97, 1]),
+        "value_td_lambda": trial.suggest_categorical("value_td_lambda", [0, 0.97, 1]),
         "batch_size": trial.suggest_categorical("batch_size", [25000, 50000]),
     }
     return hyperparams
